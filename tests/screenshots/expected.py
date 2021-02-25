@@ -40,6 +40,26 @@ EXPECTED_OBSERVATIONS = {
     #     money=16000,
     #     context=Context.WARM_UP
     # )
+    # TODO uncomment when we can handle noise around money
+    "tests/screenshots/1613856429.811474.png": Observation(
+        location=format_location("Apartments"),
+        ct_score=0,
+        t_score=0,
+        time=timedelta(seconds=89),
+        side=None,
+        money=500,
+        context=Context.ALIVE
+    ),
+    "tests/screenshots/1613856409.782785.png": Observation(
+        location=format_location("Lower Mid"),
+        ct_score=0,
+        t_score=0,
+        time=timedelta(seconds=109),
+        side=None,
+        money=500,
+        context=Context.ALIVE
+    ),
+
     "tests/screenshots/1613858922.2529435.png": Observation(
         location=format_location("Ruins"),
         ct_score=12,

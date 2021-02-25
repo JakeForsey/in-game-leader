@@ -4,7 +4,8 @@ from unittest import TestCase
 import numpy as np
 import easyocr
 
-from ingameleader.app import frame_to_observation, extract
+from ingameleader.utils import extract
+from ingameleader.app import frame_to_observation
 from ingameleader import config as cfg
 
 from tests.screenshots import expected
@@ -18,4 +19,9 @@ class TestFrameToObservation(TestCase):
             img = Image.open(image_path)
             frame = extract(cfg.META_REGION, np.array(img), (0, 0) + img.size)
             actual_observation = frame_to_observation(frame, reader)
-            assert actual_observation == expected_observation
+
+            assert actual_observation == expected_observation, f"""
+                Observations did not match for {image_path}
+                {actual_observation} 
+                {expected_observation}
+                """
