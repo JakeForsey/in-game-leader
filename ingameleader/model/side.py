@@ -14,5 +14,15 @@ class Side(enum.Enum):
         elif location == format_location("T Start"):
             return Side.T
         else:
-            print(f"Unable to determine side from {location}")
+            print(f"WARNING: Unable to determine side from {location}")
+            return None
+
+    @staticmethod
+    def from_initial(initial):
+        if initial == "T":
+            return Side.T
+        elif initial == "CT":
+            return Side.CT
+        else:
+            print(f"WARNING: Unable to determine side from {initial}")
             return None

@@ -1,8 +1,10 @@
 import asyncio
 from collections import defaultdict, deque
 from datetime import timedelta
+import random
 import string
 from typing import Optional, List
+import cv2
 
 import discord
 from discord.ext.commands import Bot
@@ -19,6 +21,7 @@ from ingameleader.utils import (
     match_signature,
     text_to_score,
     mask_unused_regions,
+    extract,
     LETTER_TO_DIGIT,
 )
 from ingameleader.model.observation import Observation
@@ -26,182 +29,184 @@ from ingameleader.model.side import Side
 from ingameleader.model.context import Context
 
 
-def get_current_context(frame, text_results) -> Context:
-    money_text = best_result(
-        text_results,
-        relative_to(cfg.MONEY_REGION, cfg.META_REGION),
-        0.2,
-    )
-    # Some times (e.g. when you get a kill the money increments and the animation makes
-    # the $ look like an S
-    if money_text is not None and money_text.startswith("S"):
-        money_text = money_text.replace("S", "$")
-    if money_text is None or "$" not in money_text:
-        return Context.UNKNOWN
+class FrameParser:
+    def __init__(self):
+        self.reader = easyocr.Reader(["en"])
 
-    round_text = best_result(
-        text_results,
-        relative_to(cfg.ROUND_TEXT_REGION, cfg.META_REGION),
-        0.5
-    )
-    if round_text is not None and "round" in round_text.lower():
-        return Context.DEAD
+    def frame_to_observation(self, frame):
+        frame = mask_unused_regions(frame)
 
-    # TODO detect between rounds
-    return Context.ALIVE
-
-
-def get_location(frame, text_results, current_context) -> Optional[str]:
-    if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN]:
-        return None
-
-    location_text = best_result(
-        text_results,
-        relative_to(cfg.LOCATION_TEXT_REGION, cfg.META_REGION),
-        0.15
-    )
-    return None if location_text is None else format_location(location_text)
-
-
-def get_ct_score(frame, text_results, current_context) -> Optional[int]:
-    if current_context in [Context.DEAD, Context.UNKNOWN]:
-        return None
-
-    if match_signature(frame, cfg.CT_SCORE_PIXEL_SIGNATURE, cfg.META_REGION):
-        return 0
-
-    text_score = best_result(
-        text_results,
-        relative_to(cfg.CT_SCORE_REGION, cfg.META_REGION),
-        0.15,
-    )
-    if text_score is None:
-        return None
-
-    return text_to_score(text_score)
-
-
-def get_t_score(frame, text_results, current_context) -> Optional[int]:
-    if current_context in [Context.DEAD, Context.UNKNOWN]:
-        return None
-
-    if match_signature(frame, cfg.T_SCORE_PIXEL_SIGNATURE, cfg.META_REGION):
-        return 0
-
-    text_score = best_result(
-        text_results,
-        relative_to(cfg.T_SCORE_REGION, cfg.META_REGION),
-        0.15,
-    )
-    if text_score is None:
-        return None
-
-    return text_to_score(text_score)
-
-
-def get_round_time(frame, text_results, current_context) -> Optional[timedelta]:
-    if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN, Context.WARM_UP]:
-        return None
-
-    # Try and get mins and seconds together
-    round_time_text = best_result(
-        text_results,
-        relative_to(cfg.TIME_REGION, cfg.META_REGION),
-        0.5
-    )
-    try:
-        mins, secs = round_time_text.split(":")
-    except Exception as e:
-        # Try and get mins and seconds separately
-        mins = best_result(
-            text_results,
-            relative_to(cfg.MINUTES_REGION, cfg.META_REGION),
-            0.2
+        text_results = self.reader.readtext(
+            frame,
+            decoder="beamsearch",
+            allowlist=string.ascii_letters + string.digits + ":" + " " + " $",
+            batch_size=32,
         )
-        secs = best_result(
-            text_results,
-            relative_to(cfg.SECONDS_REGION, cfg.META_REGION),
-            0.2
+        current_context = self.get_current_context(frame, text_results)
+        return Observation(
+            current_context,
+            self.get_location(frame, text_results, current_context),
+            self.get_ct_score(frame, text_results, current_context),
+            self.get_t_score(frame, text_results, current_context),
+            self.get_round_time(frame, text_results, current_context),
+            self.get_side(frame, text_results, current_context),
+            self.get_money(frame, text_results, current_context),
+            self.get_round_winner(frame, text_results, current_context),
         )
 
-    if mins is None or secs is None:
-        return None
+    def get_current_context(self, frame, text_results) -> Context:
+        # If there is a winner we are between rounds
+        for winner, pixel_signature in cfg.ROUND_WINNER_PIXEL_SIGNATURES.items():
+            if match_signature(frame, pixel_signature):
+                return Context.BETWEEN_ROUNDS
 
-    try:
-        time = timedelta(seconds=int(secs), minutes=int(mins))
-    except ValueError:
-        return None
+        money_text = best_result(
+            text_results,
+            relative_to(cfg.MONEY_REGION, cfg.META_REGION),
+            0.2,
+        )
+        # Some times (e.g. when you get a kill the money increments and the animation makes
+        # the $ look like an S
+        if money_text is not None and money_text.startswith("S"):
+            money_text = money_text.replace("S", "$")
+        if money_text is None or "$" not in money_text:
+            return Context.UNKNOWN
 
-    if time > timedelta(minutes=2):
-        return None
+        round_text = best_result(
+            text_results,
+            relative_to(cfg.ROUND_TEXT_REGION, cfg.META_REGION),
+            0.5
+        )
+        if round_text is not None and "round" in round_text.lower():
+            return Context.DEAD
 
-    return time
+        # TODO detect between rounds
+        return Context.ALIVE
 
+    def get_round_winner(self, frame, text_results, current_context) -> Optional[Side]:
+        for winner, pixel_signature in cfg.ROUND_WINNER_PIXEL_SIGNATURES.items():
+            if match_signature(frame, pixel_signature, cfg.META_REGION):
+                return Side.from_initial(winner)
 
-def get_side(frame, text_results, current_context) -> Optional[Side]:
-    if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN, Context.WARM_UP]:
-        return None
+    def get_location(self, frame, text_results, current_context) -> Optional[str]:
+        if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN]:
+            return None
 
-    round_time = get_round_time(frame, text_results, current_context)
-    location = get_location(frame, text_results, current_context)
-    if round_time is None or location is None:
-        return None
+        score_frame = extract(cfg.LOCATION_TEXT_REGION, frame, cfg.META_REGION)
+        score_frame = cv2.normalize(cv2.cvtColor(score_frame, cv2.COLOR_RGB2GRAY), None, 0, 255, cv2.NORM_MINMAX)
 
-    if round_time < timedelta(seconds=110):
-        return None
+        text_results = self.reader.readtext(
+            score_frame,
+            allowlist=string.ascii_letters,
+        )
+        location_text = max(text_results, key=lambda r: r[2], default=(None, None))[1]
 
-    return Side.from_location(location)
+        return None if location_text is None else format_location(location_text)
 
+    def _get_score(self, frame, text_results, current_context, region, pixel_signatures) -> Optional[int]:
+        if current_context in [Context.DEAD, Context.UNKNOWN]:
+            return None
 
-def get_money(frame, text_results, current_context) -> Optional[float]:
-    if current_context == current_context.UNKNOWN:
-        return None
+        for score, pixel_signature in pixel_signatures.items():
+            if match_signature(frame, pixel_signature, cfg.META_REGION):
+                return score
 
-    money_text = best_result(
-        text_results,
-        relative_to(cfg.MONEY_REGION, cfg.META_REGION),
-        0.3,
-    )
-    # Some times (e.g. when you get a kill the money increments and the animation makes
-    # the $ look like an S
-    if money_text is not None and money_text.startswith("S"):
-        money_text = money_text.replace("S", "$")
-    if money_text is None or "$" not in money_text:
-        return None
-    # Remove $ sign
-    money_text = money_text.replace("$", "")
-    # Replace letters that commonly get mixed up with digits
-    for l, d in LETTER_TO_DIGIT.items():
-        money_text = money_text.replace(l, str(d))
-    try:
-        return int(money_text)
-    except:
-        return None
+        score_frame = extract(region, frame, cfg.META_REGION)
+        score_frame = cv2.normalize(cv2.cvtColor(score_frame, cv2.COLOR_RGB2GRAY), None, 0, 255, cv2.NORM_MINMAX)
 
+        text_results = self.reader.readtext(
+            score_frame,
+            allowlist=string.digits,
+        )
+        text_score = max(text_results, key=lambda r: r[2], default=(None, None))[1]
 
-def frame_to_observation(frame, reader):
-    frame = mask_unused_regions(frame)
-    text = reader.readtext(
-        frame,
-        decoder="beamsearch",
-        allowlist=string.ascii_letters + string.digits + ":" + " " + " $",
-        batch_size=32,
-    )
-    current_context = get_current_context(frame, text)
-    return Observation(
-        get_location(frame, text, current_context),
-        get_ct_score(frame, text, current_context),
-        get_t_score(frame, text, current_context),
-        get_round_time(frame, text, current_context),
-        get_side(frame, text, current_context),
-        get_money(frame, text, current_context),
-        current_context,
-    )
+        if text_score is None:
+            return None
 
+        return text_to_score(text_score)
 
-def make_observation(screenshotter, reader):
-    frame = screenshotter.screenshot(region=cfg.META_REGION)
-    return frame_to_observation(frame, reader)
+    def get_ct_score(self, frame, text_results, current_context) -> Optional[int]:
+        return self._get_score(frame, text_results, current_context, cfg.CT_SCORE_REGION, cfg.CT_SCORE_PIXEL_SIGNATURES)
+
+    def get_t_score(self, frame, text_results, current_context) -> Optional[int]:
+        return self._get_score(frame, text_results, current_context, cfg.T_SCORE_REGION, cfg.T_SCORE_PIXEL_SIGNATURES)
+
+    def get_round_time(self, frame, text_results, current_context) -> Optional[timedelta]:
+        if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN, Context.WARM_UP]:
+            return None
+
+        # Try and get mins and seconds together
+        round_time_text = best_result(
+            text_results,
+            relative_to(cfg.TIME_REGION, cfg.META_REGION),
+            0.5
+        )
+        try:
+            mins, secs = round_time_text.split(":")
+        except Exception as e:
+            # Try and get mins and seconds separately
+            mins = best_result(
+                text_results,
+                relative_to(cfg.MINUTES_REGION, cfg.META_REGION),
+                0.2
+            )
+            secs = best_result(
+                text_results,
+                relative_to(cfg.SECONDS_REGION, cfg.META_REGION),
+                0.2
+            )
+
+        if mins is None or secs is None:
+            return None
+
+        try:
+            time = timedelta(seconds=int(secs), minutes=int(mins))
+        except ValueError:
+            return None
+
+        if time > timedelta(minutes=2):
+            return None
+
+        return time
+
+    def get_side(self, frame, text_results, current_context) -> Optional[Side]:
+        if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN, Context.WARM_UP]:
+            return None
+
+        round_time = self.get_round_time(frame, text_results, current_context)
+        location = self.get_location(frame, text_results, current_context)
+        if round_time is None or location is None:
+            return None
+
+        if round_time < timedelta(seconds=110):
+            return None
+
+        return Side.from_location(location)
+
+    def get_money(self, frame, text_results, current_context) -> Optional[float]:
+        if current_context == current_context.UNKNOWN:
+            return None
+
+        money_text = best_result(
+            text_results,
+            relative_to(cfg.MONEY_REGION, cfg.META_REGION),
+            0.3,
+        )
+        # Some times (e.g. when you get a kill the money increments and the animation makes
+        # the $ look like an S
+        if money_text is not None and money_text.startswith("S"):
+            money_text = money_text.replace("S", "$")
+        if money_text is None or "$" not in money_text:
+            return None
+        # Remove $ sign
+        money_text = money_text.replace("$", "")
+        # Replace letters that commonly get mixed up with digits
+        for l, d in LETTER_TO_DIGIT.items():
+            money_text = money_text.replace(l, str(d))
+        try:
+            return int(money_text)
+        except:
+            return None
 
 
 client = discord.Client()
@@ -231,9 +236,10 @@ async def edit_or_create_messages(new_text, messages=None):
 async def monitor_game():
     await bot.wait_until_ready()
     screenshotter = d3dshot.create(capture_output="numpy", frame_buffer_size=1)
-    reader = easyocr.Reader(["en"])
+    parser = FrameParser()
     while True:
-        observation = make_observation(screenshotter, reader)
+        frame = screenshotter.screenshot(region=cfg.META_REGION)
+        observation = parser.frame_to_observation(frame)
         print(observation)
         async with GAME_LOCK:
             game.update(observation)
@@ -251,21 +257,41 @@ def observations_to_route(observations: List[Observation]) -> List[str]:
     return route
 
 
-LOG_TEMPLATE = """
-=============================
-    CT {}   |    T {}
-{}
-{}
-{}
-=============================
-"""
+def route_to_strategy(route):
+    return random.choice(STRATEGIES)
+
+
+GOOD_MESSAGE_TEMPLATE = """```diff
++ [{}]
+```"""
+BAD_MESSAGE_TEMPLATE = """```diff
+- [{}]
+```"""
+NEUTRAL_MESSAGE_TEMPLATE = """```fix
+  [{}]
+```"""
+COMMAND_MESSAGE_TEMPLATE = """```ini
+  [{}]
+```"""
+MESSAGE_TEMPLATE = """
+```json
+  {{"Counter Terrorist": {}, "Terrorist": {}}}
+```"""
+STRATEGIES = [
+    "Rush B!".ljust(26) + "W/R 53%",
+    "Rush A!".ljust(26) + "W/R 56%",
+    "Take it slow..".ljust(26) + "W/R 51%",
+    "Split A".ljust(26) + "W/R 45%",
+]
+
 
 async def log_game_progress():
     logging_history = defaultdict(
-        lambda: {"logged_start": False, "logged_end": False}
+        lambda: {"logged_start": False, "logged_end": False, "logged_recommendation": False}
     )
     message_handles = None
-    message_history = deque(["", "", ""], 3)
+    message_history = deque([], 3)
+    last_message = None
     while True:
         await asyncio.sleep(5)
 
@@ -274,16 +300,46 @@ async def log_game_progress():
                 progress = logging_history[round_number]
 
                 if not progress["logged_start"]:
-                    message_history.appendleft(f"Starting round {round_number}")
+                    message_history.appendleft(
+                        NEUTRAL_MESSAGE_TEMPLATE.format(f"Starting round {round_number}".ljust(33))
+                    )
                     progress["logged_start"] = True
 
+                if not progress["logged_recommendation"]:
+                    message_history.appendleft(
+                        COMMAND_MESSAGE_TEMPLATE.format(random.choice(STRATEGIES))
+                    )
+                    progress["logged_recommendation"] = True
+
                 if round.complete and not progress["logged_end"]:
-                    message_history.appendleft(f"{'CT won' if round.ct_win else 'T won'} round {round_number} with route: {' -> '.join(observations_to_route(round.observations))}")
+                    if round.ct_win and round.side == Side.CT:
+                        message_history.appendleft(
+                            GOOD_MESSAGE_TEMPLATE.format(f"We won! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
+                        )
+                    elif round.ct_win and round.side != Side.CT:
+                        message_history.appendleft(
+                            BAD_MESSAGE_TEMPLATE.format(f"We lost! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
+                        )
+                    elif round.t_win and round.side == Side.T:
+                        message_history.appendleft(
+                            GOOD_MESSAGE_TEMPLATE.format(
+                                f"We won! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
+                        )
+                    elif round.t_win and round.side != Side.T:
+                        message_history.appendleft(
+                            BAD_MESSAGE_TEMPLATE.format(
+                                f"We lost! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
+                        )
                     progress["logged_end"] = True
 
                 logging_history[round_number] = progress
 
-            message_handles = await edit_or_create_messages(LOG_TEMPLATE.format(game.ct_score, game.t_score, *message_history), message_handles)
+            a = list(message_history)
+            a.reverse()
+            full_message = MESSAGE_TEMPLATE.format(game.ct_score, game.t_score) + "".join(a)
+            if full_message != last_message:
+                message_handles = await edit_or_create_messages(full_message, message_handles)
+                last_message = full_message
 
 
 bot.loop.create_task(monitor_game())

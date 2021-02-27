@@ -8,13 +8,14 @@ from ingameleader.model.context import Context
 
 @dataclass
 class Observation:
+    context: Context
     location: Optional[str]
     ct_score: Optional[int]
     t_score: Optional[int]
     time: Optional[timedelta]
     side: Optional[Side]
     money: Optional[int]
-    context: Context
+    winner: Optional[Side] = None
 
     @property
     def round_number(self):
@@ -23,4 +24,4 @@ class Observation:
             return None
         if round_number > 30 or round_number < 0:
             return None
-        return  round_number
+        return round_number

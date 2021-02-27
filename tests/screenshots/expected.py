@@ -22,13 +22,14 @@ EXPECTED_OBSERVATIONS = {
         context=Context.ALIVE
     ),
     "tests/screenshots/1613854648.0500681.png": Observation(
-        location=format_location("B Doors"),
-        ct_score=None,  # TODO switch this to 7 once we can
+        context=Context.BETWEEN_ROUNDS,
+        location=None,
+        ct_score=7,
         t_score=4,
         time=None,
         side=None,
         money=5650,
-        context=Context.ALIVE  # TODO switch this to between rounds once implemented
+        winner=Side.CT,
     ),
     # TODO uncomment once we have context recognition for warm up
     # "tests/screenshots/1613856369.744595.png": Observation(
@@ -40,7 +41,6 @@ EXPECTED_OBSERVATIONS = {
     #     money=16000,
     #     context=Context.WARM_UP
     # )
-    # TODO uncomment when we can handle noise around money
     "tests/screenshots/1613856429.811474.png": Observation(
         location=format_location("Apartments"),
         ct_score=0,
@@ -59,7 +59,6 @@ EXPECTED_OBSERVATIONS = {
         money=500,
         context=Context.ALIVE
     ),
-
     "tests/screenshots/1613858922.2529435.png": Observation(
         location=format_location("Ruins"),
         ct_score=12,
@@ -77,5 +76,45 @@ EXPECTED_OBSERVATIONS = {
         side=Side.CT,
         money=500,
         context=Context.ALIVE
+    ),
+    "tests/screenshots/1613856529.9070535.png": Observation(
+        location=format_location("T Ramp"),
+        ct_score=1,
+        t_score=0,
+        time=timedelta(seconds=106),
+        side=None,
+        money=2800,
+        context=Context.ALIVE
+    ),
+    # Counter Terrorist win between rounds
+    "tests/screenshots/1613858091.4364786.png": Observation(
+        location=None,
+        ct_score=7,
+        t_score=8,
+        time=None,
+        side=None,
+        money=5150,
+        context=Context.BETWEEN_ROUNDS,
+        winner=Side.CT,
+    ),
+    "tests/screenshots/1613858441.821546.png": Observation(
+        location=format_location("CT Start"),
+        ct_score=10,
+        t_score=8,
+        time=timedelta(seconds=92),
+        side=None,
+        money=1500,
+        context=Context.ALIVE,
+    ),
+    # Terrorist win between rounds
+    "tests/screenshots/1613857600.9269984.png": Observation(
+        location=None,
+        ct_score=6,
+        t_score=4,
+        time=None,
+        side=None,
+        money=6100,
+        context=Context.BETWEEN_ROUNDS,
+        winner=Side.T
     ),
 }

@@ -24,8 +24,9 @@ def format_location(text):
 
 
 def mask_unused_regions(frame):
+    frame = frame.copy()
     mask = np.zeros_like(frame, dtype=bool)
-    for region in [cfg.TIME_REGION, cfg.MONEY_REGION, cfg.LOCATION_TEXT_REGION, cfg.ROUND_TEXT_REGION, cfg.CT_SCORE_REGION, cfg.T_SCORE_REGION]:
+    for region in cfg.REGIONS:
         region = relative_to(region, cfg.META_REGION)
         mask[
             region[1]: region[3],
@@ -40,12 +41,13 @@ def match_signature(frame, signature, meta_region=cfg.META_REGION):
     for position, colour, expectation in signature:
         position = relative_to(position, meta_region)
         value = frame[position[1], position[0]]
-        if (np.abs(value - np.array(colour)) < 10).all() != expectation:
+        if (np.abs(value - np.array(colour)) < 20).all() != expectation:
             return False
     return True
 
 
 def extract(region, frame, meta_region=cfg.META_REGION):
+    frame = frame.copy()
     return frame[
         region[1] - meta_region[1]: region[3] - meta_region[1],
         region[0] - meta_region[0]: region[2] - meta_region[0],
