@@ -12,6 +12,7 @@ matplotlib = "*"
 easyocr = {path = "./../../Builds/EasyOCR"}
 "discord.py" = "*"
 sklearn = "*"
+filestack-python = "*"
 
 [requires]
 python_version = "3.8"

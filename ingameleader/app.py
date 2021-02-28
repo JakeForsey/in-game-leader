@@ -1,9 +1,8 @@
 import asyncio
-from collections import defaultdict, deque
 from datetime import timedelta
 import random
 import string
-from typing import Optional, List
+from typing import Dict, Optional, List
 import cv2
 
 import discord
@@ -14,6 +13,7 @@ import easyocr
 
 from ingameleader import config as cfg
 from ingameleader.game import Game
+from ingameleader.plot import plot_strategies
 from ingameleader.utils import (
     relative_to,
     best_result,
@@ -27,6 +27,7 @@ from ingameleader.utils import (
 from ingameleader.model.observation import Observation
 from ingameleader.model.side import Side
 from ingameleader.model.context import Context
+from ingameleader.model.strategy import Strategy, StrategeyUpdate
 
 
 class FrameParser:
@@ -215,20 +216,25 @@ game = Game()
 GAME_LOCK = asyncio.Lock()
 
 
-async def edit_or_create_messages(new_text, messages=None):
-    print(f"{'EDITING' if messages is not None else 'CREATING'} MESSAGES: '{new_text}'")
-
+async def edit_or_create_messages(title, description, image_url, messages=None):
+    embed = discord.Embed(
+        title=title,
+        # colour=discord.Color.blue()
+        colour=0x3498db,
+    )
+    embed.set_footer(text=description)
+    embed.set_image(url=image_url)
     if messages is None:
         messages = []
         for guild in bot.guilds:
-            if guild.name == 'Foreskins + the help':
-                continue
+            # if guild.name == 'Foreskins + the help':
+            #     continue
             for channel in guild.text_channels:
-                message_handle = await channel.send(new_text)
+                message_handle = await channel.send(embed=embed)
                 messages.append(message_handle)
     else:
         for message in messages:
-            await message.edit(content=new_text)
+            await message.edit(embed=embed)
 
     return messages
 
@@ -243,12 +249,14 @@ async def monitor_game():
         print(observation)
         async with GAME_LOCK:
             game.update(observation)
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
 
 
 def observations_to_route(observations: List[Observation]) -> List[str]:
     route = []
     for observation in observations:
+        if observation.location is None:
+            continue
         if not route:
             route.append(observation.location)
         else:
@@ -257,89 +265,97 @@ def observations_to_route(observations: List[Observation]) -> List[str]:
     return route
 
 
-def route_to_strategy(route):
-    return random.choice(STRATEGIES)
+TITLE_TEMPLATE = """Counter-Terrorist [ {} ]      [ {} ] Terrorist        """
+EXECUTE_TEMPLATE = """[ ROUND {} ] [ EXECUTE ] {}"""
+STRATEGY_TEMPLATE = """[ ROUND {} ] [ STRATEGY ] {}"""
 
 
-GOOD_MESSAGE_TEMPLATE = """```diff
-+ [{}]
-```"""
-BAD_MESSAGE_TEMPLATE = """```diff
-- [{}]
-```"""
-NEUTRAL_MESSAGE_TEMPLATE = """```fix
-  [{}]
-```"""
-COMMAND_MESSAGE_TEMPLATE = """```ini
-  [{}]
-```"""
-MESSAGE_TEMPLATE = """
-```json
-  {{"Counter Terrorist": {}, "Terrorist": {}}}
-```"""
-STRATEGIES = [
-    "Rush B!".ljust(26) + "W/R 53%",
-    "Rush A!".ljust(26) + "W/R 56%",
-    "Take it slow..".ljust(26) + "W/R 51%",
-    "Split A".ljust(26) + "W/R 45%",
-]
+class StrategyManager:
+    def __init__(self, strategies):
+        self.strategies: Dict[str, Strategy] = strategies
+        self._plot_url = plot_strategies(list(self.strategies.values()), None)
+
+    def update(self, update: StrategeyUpdate, selected=None):
+        strategy = self.strategies[update.strategy_id]
+        strategy.wins += 1 if update.win else 0
+        strategy.losses += 0 if update.win else 1
+
+        self._plot_url = plot_strategies(list(self.strategies.values()), selected)
+        return self._plot_url
+
+    @property
+    def latest_plot(self):
+        return self._plot_url
 
 
 async def log_game_progress():
-    logging_history = defaultdict(
-        lambda: {"logged_start": False, "logged_end": False, "logged_recommendation": False}
-    )
     message_handles = None
-    message_history = deque([], 3)
-    last_message = None
+    last_title = None
+    last_url = None
+    last_description = None
+    handled_rounds = set()
+    description = "Starting game..."
+    strategy_manager = StrategyManager({
+        "rushb": Strategy(
+            strategy_id="rushb",
+            strategy_name="Rush B",
+            alpha=2,
+            beta=2,
+            wins=0,
+            losses=0
+        ),
+        "rusha": Strategy(
+            strategy_id="rusha",
+            strategy_name="Rush A",
+            alpha=2,
+            beta=2,
+            wins=0,
+            losses=0
+        ),
+        "freestyle": Strategy(
+            strategy_id="freestyle",
+            strategy_name="Freestyle",
+            alpha=2,
+            beta=2,
+            wins=0,
+            losses=0
+        )
+    })
     while True:
         await asyncio.sleep(5)
 
         async with GAME_LOCK:
             for round_number, round in game.rounds.items():
-                progress = logging_history[round_number]
 
-                if not progress["logged_start"]:
-                    message_history.appendleft(
-                        NEUTRAL_MESSAGE_TEMPLATE.format(f"Starting round {round_number}".ljust(33))
+                if round.complete and round_number not in handled_rounds:
+                    next_strat = random.choice(list(strategy_manager.strategies))
+                    strategy_manager.update(
+                        StrategeyUpdate(
+                            strategy_id=random.choice(list(strategy_manager.strategies)),
+                            win=random.choice([True, True, False])
+                        ),
+                        selected=list(strategy_manager.strategies).index(next_strat)
                     )
-                    progress["logged_start"] = True
-
-                if not progress["logged_recommendation"]:
-                    message_history.appendleft(
-                        COMMAND_MESSAGE_TEMPLATE.format(random.choice(STRATEGIES))
+                    handled_rounds.add(round_number)
+                    strategy_text = STRATEGY_TEMPLATE.format(
+                        round.number,
+                        "->".join(observations_to_route(round.observations)),
                     )
-                    progress["logged_recommendation"] = True
+                    execute_text = EXECUTE_TEMPLATE.format(
+                        round.number + 1,
+                        strategy_manager.strategies[next_strat].strategy_name
+                    )
+                    description = strategy_text + "\n" + execute_text
 
-                if round.complete and not progress["logged_end"]:
-                    if round.ct_win and round.side == Side.CT:
-                        message_history.appendleft(
-                            GOOD_MESSAGE_TEMPLATE.format(f"We won! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
-                        )
-                    elif round.ct_win and round.side != Side.CT:
-                        message_history.appendleft(
-                            BAD_MESSAGE_TEMPLATE.format(f"We lost! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
-                        )
-                    elif round.t_win and round.side == Side.T:
-                        message_history.appendleft(
-                            GOOD_MESSAGE_TEMPLATE.format(
-                                f"We won! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
-                        )
-                    elif round.t_win and round.side != Side.T:
-                        message_history.appendleft(
-                            BAD_MESSAGE_TEMPLATE.format(
-                                f"We lost! Strategy: {' -> '.join(observations_to_route(round.observations))}".ljust(33))
-                        )
-                    progress["logged_end"] = True
-
-                logging_history[round_number] = progress
-
-            a = list(message_history)
-            a.reverse()
-            full_message = MESSAGE_TEMPLATE.format(game.ct_score, game.t_score) + "".join(a)
-            if full_message != last_message:
-                message_handles = await edit_or_create_messages(full_message, message_handles)
-                last_message = full_message
+        url = strategy_manager.latest_plot
+        title = TITLE_TEMPLATE.format(game.ct_score, game.t_score)
+        if title != last_title or url != last_url or description != last_description:
+            message_handles = await edit_or_create_messages(
+                title, description, url, message_handles
+            )
+            last_title = title
+            last_url = url
+            last_description = description
 
 
 bot.loop.create_task(monitor_game())
@@ -353,4 +369,5 @@ if __name__ == "__main__":
     # while True:
     #     obs = make_observation(screenshotter, reader)
     #     print(obs)
+
     bot.run(cfg.DISCORD_TOKEN)
