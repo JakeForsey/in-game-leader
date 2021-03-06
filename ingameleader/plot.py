@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import beta
 
-from ingameleader.model.strategy import Strategy
+from ingameleader.model.dao import Strategy
 
 GAP_PER_STRATEGY = 1.5
 SELECTED_PDF_LINE_KWARGS = {
@@ -37,7 +37,7 @@ def plot_strategies(strategies: List[Strategy], selected_strategy_index):
     plt.figure(figsize=(7, 4), facecolor=(54 / 255, 57 / 255, 63 / 255))
 
     x = np.linspace(0, 1, 50)
-    colours = ["teal", "orange", "green", "yellow"]
+    colours = ["teal", "orange", "green", "yellow", "darkslateblue", "crimson"]
     for i in range(len(strategies) - 1, -1, -1):
         y = i * GAP_PER_STRATEGY
         strategy = strategies[i]
@@ -55,7 +55,7 @@ def plot_strategies(strategies: List[Strategy], selected_strategy_index):
         )
 
         plt.plot(x, dist.pdf(x) + y, c=c, **line_kwargs)
-        plt.text(1.1, y, f'{strategy.strategy_name} ({dist.stats()[0] * 100:.0f}%)', c=c, **text_kwargs)
+        plt.text(1.1, y, f'{strategy.name} ({dist.stats()[0] * 100:.0f}%)', c=c, **text_kwargs)
 
     plt.axvline(0.5, 0, 5, c="grey", linestyle="--", alpha=1, linewidth=2)
     _ = plt.axis("off")

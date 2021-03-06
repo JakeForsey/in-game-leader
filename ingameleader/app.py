@@ -7,9 +7,9 @@ import cv2
 
 import discord
 from discord.ext.commands import Bot
-
 import d3dshot
 import easyocr
+from sqlalchemy.orm.session import Session
 
 from ingameleader import config as cfg
 from ingameleader.game import Game
@@ -27,7 +27,8 @@ from ingameleader.utils import (
 from ingameleader.model.observation import Observation
 from ingameleader.model.side import Side
 from ingameleader.model.context import Context
-from ingameleader.model.strategy import Strategy, StrategeyUpdate
+from ingameleader.model.strategy import StrategyUpdate
+from ingameleader.model.dao import Map, Strategy, create_session
 
 
 class FrameParser:
@@ -271,21 +272,32 @@ STRATEGY_TEMPLATE = """[ ROUND {} ] [ STRATEGY ] {}"""
 
 
 class StrategyManager:
-    def __init__(self, strategies):
-        self.strategies: Dict[str, Strategy] = strategies
+    def __init__(self, map_name: str, session: Session):
+        self.session = session
+        self.map = self.get_map_by_name(map_name)
+        self.strategies: Dict[str, Strategy] = self.get_strategies()
         self._plot_url = plot_strategies(list(self.strategies.values()), None)
 
-    def update(self, update: StrategeyUpdate, selected=None):
+    def update(self, update: StrategyUpdate, selected=None):
         strategy = self.strategies[update.strategy_id]
         strategy.wins += 1 if update.win else 0
         strategy.losses += 0 if update.win else 1
-
+        self.session.commit()
         self._plot_url = plot_strategies(list(self.strategies.values()), selected)
         return self._plot_url
 
     @property
     def latest_plot(self):
         return self._plot_url
+
+    def get_map_by_name(self, map_name):
+        return self.session.query(Map).filter_by(name=map_name).first()
+
+    def get_strategies(self):
+        strategies = self.session.query(Strategy).filter_by(map_id=self.map.id).all()
+        return {
+            strategy.id: strategy for strategy in strategies
+        }
 
 
 async def log_game_progress():
@@ -294,68 +306,46 @@ async def log_game_progress():
     last_url = None
     last_description = None
     handled_rounds = set()
-    description = "Starting game..."
-    strategy_manager = StrategyManager({
-        "rushb": Strategy(
-            strategy_id="rushb",
-            strategy_name="Rush B",
-            alpha=2,
-            beta=2,
-            wins=0,
-            losses=0
-        ),
-        "rusha": Strategy(
-            strategy_id="rusha",
-            strategy_name="Rush A",
-            alpha=2,
-            beta=2,
-            wins=0,
-            losses=0
-        ),
-        "freestyle": Strategy(
-            strategy_id="freestyle",
-            strategy_name="Freestyle",
-            alpha=2,
-            beta=2,
-            wins=0,
-            losses=0
-        )
-    })
-    while True:
-        await asyncio.sleep(5)
+    description = "Looking for game..."
 
-        async with GAME_LOCK:
-            for round_number, round in game.rounds.items():
+    with create_session() as session:
 
-                if round.complete and round_number not in handled_rounds:
-                    next_strat = random.choice(list(strategy_manager.strategies))
-                    strategy_manager.update(
-                        StrategeyUpdate(
-                            strategy_id=random.choice(list(strategy_manager.strategies)),
-                            win=random.choice([True, True, False])
-                        ),
-                        selected=list(strategy_manager.strategies).index(next_strat)
-                    )
-                    handled_rounds.add(round_number)
-                    strategy_text = STRATEGY_TEMPLATE.format(
-                        round.number,
-                        "->".join(observations_to_route(round.observations)),
-                    )
-                    execute_text = EXECUTE_TEMPLATE.format(
-                        round.number + 1,
-                        strategy_manager.strategies[next_strat].strategy_name
-                    )
-                    description = strategy_text + "\n" + execute_text
+        strategy_manager = StrategyManager("Inferno", session)
+        while True:
+            await asyncio.sleep(5)
 
-        url = strategy_manager.latest_plot
-        title = TITLE_TEMPLATE.format(game.ct_score, game.t_score)
-        if title != last_title or url != last_url or description != last_description:
-            message_handles = await edit_or_create_messages(
-                title, description, url, message_handles
-            )
-            last_title = title
-            last_url = url
-            last_description = description
+            async with GAME_LOCK:
+                for round_number, round in game.rounds.items():
+
+                    if round.complete and round_number not in handled_rounds:
+                        next_strat = random.choice(list(strategy_manager.strategies))
+                        strategy_manager.update(
+                            StrategyUpdate(
+                                strategy_id=random.choice(list(strategy_manager.strategies)),
+                                win=random.choice([True, True, False])
+                            ),
+                            selected=list(strategy_manager.strategies).index(next_strat)
+                        )
+                        handled_rounds.add(round_number)
+                        strategy_text = STRATEGY_TEMPLATE.format(
+                            round.number,
+                            "->".join(observations_to_route(round.observations)),
+                        )
+                        execute_text = EXECUTE_TEMPLATE.format(
+                            round.number + 1,
+                            strategy_manager.strategies[next_strat].strategy_name
+                        )
+                        description = strategy_text + "\n" + execute_text
+
+            url = strategy_manager.latest_plot
+            title = TITLE_TEMPLATE.format(game.ct_score, game.t_score)
+            if title != last_title or url != last_url or description != last_description:
+                message_handles = await edit_or_create_messages(
+                    title, description, url, message_handles
+                )
+                last_title = title
+                last_url = url
+                last_description = description
 
 
 bot.loop.create_task(monitor_game())
