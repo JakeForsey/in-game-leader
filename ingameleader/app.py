@@ -1,6 +1,6 @@
 import asyncio
+from collections import deque
 from datetime import timedelta
-import random
 import string
 from typing import Dict, Optional, List
 import cv2
@@ -10,6 +10,7 @@ from discord.ext.commands import Bot
 import d3dshot
 import easyocr
 from sqlalchemy.orm.session import Session
+from scipy.stats import beta
 
 from ingameleader import config as cfg
 from ingameleader.game import Game
@@ -28,7 +29,14 @@ from ingameleader.model.observation import Observation
 from ingameleader.model.side import Side
 from ingameleader.model.context import Context
 from ingameleader.model.strategy import StrategyUpdate
+from ingameleader.model.round import Round
 from ingameleader.model.dao import Map, Strategy, create_session
+
+
+client = discord.Client()
+bot = Bot(client)
+game = Game()
+GAME_LOCK = asyncio.Lock()
 
 
 class FrameParser:
@@ -211,33 +219,31 @@ class FrameParser:
             return None
 
 
-client = discord.Client()
-bot = Bot(client)
-game = Game()
-GAME_LOCK = asyncio.Lock()
-
-
-async def edit_or_create_messages(title, description, image_url, messages=None):
+async def edit_or_create_messages(title, footer, image_url, message_handles=None):
+    print("Sending message")
     embed = discord.Embed(
         title=title,
         # colour=discord.Color.blue()
         colour=0x3498db,
     )
-    embed.set_footer(text=description)
-    embed.set_image(url=image_url)
-    if messages is None:
-        messages = []
+    embed.set_footer(text=footer)
+    if image_url is not None:
+        embed.set_image(url=image_url)
+    if message_handles is None:
+        message_handles = []
+        print("iterating bot.guilds")
         for guild in bot.guilds:
-            # if guild.name == 'Foreskins + the help':
-            #     continue
+            print(guild.name)
+            if guild.name == 'Foreskins + the help':
+                continue
             for channel in guild.text_channels:
                 message_handle = await channel.send(embed=embed)
-                messages.append(message_handle)
+                message_handles.append(message_handle)
     else:
-        for message in messages:
+        for message in message_handles:
             await message.edit(embed=embed)
 
-    return messages
+    return message_handles
 
 
 async def monitor_game():
@@ -272,9 +278,9 @@ STRATEGY_TEMPLATE = """[ ROUND {} ] [ STRATEGY ] {}"""
 
 
 class StrategyManager:
-    def __init__(self, map_name: str, session: Session):
+    def __init__(self, session: Session, map: Map):
         self.session = session
-        self.map = self.get_map_by_name(map_name)
+        self.map = map
         self.strategies: Dict[str, Strategy] = self.get_strategies()
         self._plot_url = plot_strategies(list(self.strategies.values()), None)
 
@@ -290,9 +296,6 @@ class StrategyManager:
     def latest_plot(self):
         return self._plot_url
 
-    def get_map_by_name(self, map_name):
-        return self.session.query(Map).filter_by(name=map_name).first()
-
     def get_strategies(self):
         strategies = self.session.query(Strategy).filter_by(map_id=self.map.id).all()
         return {
@@ -300,52 +303,111 @@ class StrategyManager:
         }
 
 
+def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
+    return max(
+        strategies,
+        key=lambda strat: beta.rvs(
+            strat.alpha + strat.wins,
+            strat.beta + strat.losses,
+            size=1,
+        )
+    )
+
+
+def update_strategy(strategies: List[Strategy], round: Round):
+    played_strategy = None
+    pass
+
+
+class Message:
+    def __init__(self):
+        self.text_messages = deque(maxlen=5)
+        self.game = None
+        self.round = None
+        self.selected_strategy = None
+        self.url = None
+        self.message_handles = None
+
+    async def set_game(self, game: Game):
+        self.game = game
+        await self.update()
+
+    async def append_description(self, string: str):
+        self.text_messages.append(string)
+        await self.update()
+
+    async def set_round(self, round: Round):
+        self.round = round
+        await self.update()
+
+    async def set_selected_strategy(self, strategy: Strategy):
+        self.selected_strategy = strategy
+        await self.append_description(
+            EXECUTE_TEMPLATE.format(
+                self.round.number,
+                self.selected_strategy.name
+            )
+        )
+
+    async def set_url(self, url: str):
+        self.url = url
+        await self.update()
+
+    async def update(self):
+        self.message_handles = await edit_or_create_messages(
+            TITLE_TEMPLATE.format(self.game.ct_score, self.game.t_score) if game.rounds else "Waiting for game to start",
+            "\n".join(self.text_messages),
+            self.url,
+            self.message_handles
+        )
+
+
 async def log_game_progress():
-    message_handles = None
-    last_title = None
-    last_url = None
-    last_description = None
-    handled_rounds = set()
-    description = "Looking for game..."
+    await bot.wait_until_ready()
+
+    map_name = "Inferno"
+    message = Message()
+
+    async with GAME_LOCK:
+        await message.set_game(game)
 
     with create_session() as session:
+        map = session.query(Map).filter_by(name=map_name).first()
 
-        strategy_manager = StrategyManager("Inferno", session)
         while True:
-            await asyncio.sleep(5)
-
             async with GAME_LOCK:
-                for round_number, round in game.rounds.items():
+                side = game.side
+                rounds = game.rounds
+                if game.complete:
+                    break
 
-                    if round.complete and round_number not in handled_rounds:
-                        next_strat = random.choice(list(strategy_manager.strategies))
-                        strategy_manager.update(
-                            StrategyUpdate(
-                                strategy_id=random.choice(list(strategy_manager.strategies)),
-                                win=random.choice([True, True, False])
-                            ),
-                            selected=list(strategy_manager.strategies).index(next_strat)
-                        )
-                        handled_rounds.add(round_number)
-                        strategy_text = STRATEGY_TEMPLATE.format(
-                            round.number,
-                            "->".join(observations_to_route(round.observations)),
-                        )
-                        execute_text = EXECUTE_TEMPLATE.format(
-                            round.number + 1,
-                            strategy_manager.strategies[next_strat].strategy_name
-                        )
-                        description = strategy_text + "\n" + execute_text
+            strategies = session \
+                .query(Strategy) \
+                .filter_by(map_id=map.id, side=side) \
+                .all()
 
-            url = strategy_manager.latest_plot
-            title = TITLE_TEMPLATE.format(game.ct_score, game.t_score)
-            if title != last_title or url != last_url or description != last_description:
-                message_handles = await edit_or_create_messages(
-                    title, description, url, message_handles
-                )
-                last_title = title
-                last_url = url
-                last_description = description
+            if not rounds or not strategies:
+                # Game has not started (or we have not figured out the side we are
+                # on yet)
+                await asyncio.sleep(5)
+                continue
+
+            round = rounds[max(rounds)]
+            await message.set_round(round)
+
+            selected_strategy = select_strategy(strategies)
+            await message.set_selected_strategy(selected_strategy)
+
+            url = plot_strategies(strategies, selected_strategy)
+            await message.set_url(url)
+
+            while not round.complete:
+                await asyncio.sleep(5)
+
+            update_strategy(strategies, round)
+
+            url = plot_strategies(strategies, selected_strategy)
+            await message.set_url(url)
 
 
 bot.loop.create_task(monitor_game())

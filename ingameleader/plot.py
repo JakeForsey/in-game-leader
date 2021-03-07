@@ -33,7 +33,7 @@ UNSELECTED_TEXT_KWARGS = {
 client = FileStackClient(os.getenv("FILESTACK_APIKEY"))
 
 
-def plot_strategies(strategies: List[Strategy], selected_strategy_index):
+def plot_strategies(strategies: List[Strategy], selected_strategy=None):
     plt.figure(figsize=(7, 4), facecolor=(54 / 255, 57 / 255, 63 / 255))
 
     x = np.linspace(0, 1, 50)
@@ -41,8 +41,8 @@ def plot_strategies(strategies: List[Strategy], selected_strategy_index):
     for i in range(len(strategies) - 1, -1, -1):
         y = i * GAP_PER_STRATEGY
         strategy = strategies[i]
-        if selected_strategy_index is not None:
-            selected = i == selected_strategy_index
+        if selected_strategy is not None:
+            selected = strategy == selected_strategy
         else:
             selected = True
         c = colours[i]

@@ -1,8 +1,9 @@
-from typing import Dict
+from typing import Dict, Optional
 
 from ingameleader.model.round import Round
 from ingameleader.model.observation import Observation
 from ingameleader.model.context import Context
+from ingameleader.model.side import Side
 
 
 class Game:
@@ -10,6 +11,7 @@ class Game:
         self.rounds: Dict[int, Round] = {}
         self.ct_score: int = 0
         self.t_score: int = 0
+        self.side: Optional[Side] = None
 
     def update(self, observation: Observation):
         if observation.context != Context.ALIVE:
@@ -25,9 +27,13 @@ class Game:
             print("WARNING: Got an observation for a round much later in the game than expected, ignoring!")
             return None
 
+        if observation.side is not None:
+            self.side = observation.side
+
         current_round = self.rounds.get(observation.round_number, None)
         if current_round is not None:
             current_round.update(observation)
+
         else:
             current_round = Round(
                 observation.round_number,
