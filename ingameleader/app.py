@@ -2,14 +2,13 @@ import asyncio
 from collections import deque
 from datetime import timedelta
 import string
-from typing import Dict, Optional, List
+from typing import Optional, List
 import cv2
 
 import discord
 from discord.ext.commands import Bot
 import d3dshot
 import easyocr
-from sqlalchemy.orm.session import Session
 from scipy.stats import beta
 
 from ingameleader import config as cfg
