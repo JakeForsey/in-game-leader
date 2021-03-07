@@ -277,32 +277,6 @@ EXECUTE_TEMPLATE = """[ ROUND {} ] [ EXECUTE ] {}"""
 STRATEGY_TEMPLATE = """[ ROUND {} ] [ STRATEGY ] {}"""
 
 
-class StrategyManager:
-    def __init__(self, session: Session, map: Map):
-        self.session = session
-        self.map = map
-        self.strategies: Dict[str, Strategy] = self.get_strategies()
-        self._plot_url = plot_strategies(list(self.strategies.values()), None)
-
-    def update(self, update: StrategyUpdate, selected=None):
-        strategy = self.strategies[update.strategy_id]
-        strategy.wins += 1 if update.win else 0
-        strategy.losses += 0 if update.win else 1
-        self.session.commit()
-        self._plot_url = plot_strategies(list(self.strategies.values()), selected)
-        return self._plot_url
-
-    @property
-    def latest_plot(self):
-        return self._plot_url
-
-    def get_strategies(self):
-        strategies = self.session.query(Strategy).filter_by(map_id=self.map.id).all()
-        return {
-            strategy.id: strategy for strategy in strategies
-        }
-
-
 def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
     return max(
         strategies,
