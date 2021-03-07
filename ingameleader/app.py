@@ -28,7 +28,6 @@ from ingameleader.utils import (
 from ingameleader.model.observation import Observation
 from ingameleader.model.side import Side
 from ingameleader.model.context import Context
-from ingameleader.model.strategy import StrategyUpdate
 from ingameleader.model.round import Round
 from ingameleader.model.dao import Map, Strategy, create_session
 
