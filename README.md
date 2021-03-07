@@ -39,3 +39,9 @@ PyYAML
 2. Install dependencies
 
 pipenv install
+
+3. Run tests
+
+```
+(in-game-leader) \in-game-leader>python -m unittest
+```
