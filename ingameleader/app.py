@@ -1,6 +1,7 @@
 import asyncio
 from collections import deque
 from datetime import timedelta
+import os
 import string
 from typing import Optional, List
 import cv2
@@ -398,4 +399,4 @@ if __name__ == "__main__":
     #     obs = make_observation(screenshotter, reader)
     #     print(obs)
 
-    bot.run(cfg.DISCORD_TOKEN)
+    bot.run(os.getenv("DISCORD_API_TOKEN"))
