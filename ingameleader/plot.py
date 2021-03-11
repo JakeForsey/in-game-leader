@@ -12,6 +12,7 @@ from scipy import interpolate
 
 from ingameleader.model.dao import Strategy
 
+
 GAP_PER_STRATEGY = 1.5
 SELECTED_PDF_LINE_KWARGS = {
     "linewidth": 5,
@@ -37,7 +38,11 @@ client = FileStackClient(os.getenv("FILESTACK_APIKEY"))
 
 
 def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Strategy] = None):
-    fig, axes = plt.subplots(2, 1, figsize=(7, 7), facecolor=(54 / 255, 57 / 255, 63 / 255))
+    fig, axes = plt.subplots(
+        2, 1,
+        figsize=(7, 7 + (2 * len(strategies))),
+        facecolor=(54 / 255, 57 / 255, 63 / 255)
+    )
 
     x = np.linspace(0, 1, 50)
     colours = ["teal", "orange", "green", "yellow", "darkslateblue", "crimson"]
@@ -89,5 +94,6 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
     plt.tight_layout()
     plt.savefig(tmp.name)
     plt.savefig("testing.png")
+    # TODO Replace with AWS / GCP / Azure
     image_link = client.upload(filepath=tmp.name + ".png")
     return image_link.url

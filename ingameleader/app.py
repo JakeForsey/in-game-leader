@@ -1,10 +1,12 @@
 import asyncio
 from collections import deque
-from datetime import timedelta
+from datetime import timedelta, datetime
 import os
+import logging
 import string
 from typing import Optional, List
 import cv2
+from PIL import Image
 
 import discord
 from discord.ext.commands import Bot
@@ -31,7 +33,9 @@ from ingameleader.model.context import Context
 from ingameleader.model.round import Round
 from ingameleader.model.dao import Map, Strategy, create_session
 
-
+LOGGING_LEVEL = logging.DEBUG
+logging.basicConfig(level=LOGGING_LEVEL)
+logger = logging.getLogger(__name__)
 client = discord.Client()
 bot = Bot(client)
 game = Game()
@@ -219,7 +223,7 @@ class FrameParser:
 
 
 async def edit_or_create_messages(title, footer, image_url, message_handles=None):
-    print("Sending message")
+    logger.debug("Updating message")
     embed = discord.Embed(
         title=title,
         # colour=discord.Color.blue()
@@ -230,10 +234,9 @@ async def edit_or_create_messages(title, footer, image_url, message_handles=None
         embed.set_image(url=image_url)
     if message_handles is None:
         message_handles = []
-        print("iterating bot.guilds")
         for guild in bot.guilds:
-            print(guild.name)
             if guild.name == 'Foreskins + the help':
+                logger.info(f"Skipping %s", guild.name)
                 continue
             for channel in guild.text_channels:
                 message_handle = await channel.send(embed=embed)
@@ -251,8 +254,10 @@ async def monitor_game():
     parser = FrameParser()
     while True:
         frame = screenshotter.screenshot(region=cfg.META_REGION)
+        if LOGGING_LEVEL <= logging.DEBUG:
+            Image.fromarray(frame).save(f"screenshots/log/{datetime.now().timestamp()}.png")
         observation = parser.frame_to_observation(frame)
-        print(observation)
+        logger.debug(observation)
         async with GAME_LOCK:
             game.update(observation)
         await asyncio.sleep(2)
@@ -274,6 +279,7 @@ def observations_to_route(observations: List[Observation]) -> List[str]:
 TITLE_TEMPLATE = """Counter-Terrorist [ {} ]      [ {} ] Terrorist        """
 EXECUTE_TEMPLATE = """[ ROUND {} ] [ EXECUTE ] {}"""
 STRATEGY_TEMPLATE = """[ ROUND {} ] [ STRATEGY ] {}"""
+RESULT_TEMPLATE = """[ ROUND {} ] [ RESULT ] {}"""
 
 
 def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
@@ -287,13 +293,59 @@ def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
     )
 
 
-def identify_strategy(strategies: List[Strategy], round: Round) -> Strategy:
-    pass
+def identify_strategy(strategies: List[Strategy], route: List[str]) -> Optional[Strategy]:
+    for strategy in strategies:
+        for exemplar_route in strategy.exemplar_routes:
+            exemplar_locations = [rtl.location.name for rtl in exemplar_route.route_to_locations]
+            index = min(len(exemplar_locations), len(route))
+            route_string = "".join(route[:index])
+            exemplar_route_string = "".join(exemplar_locations[:index])
+            distance = edit_distance(route_string, exemplar_route_string)
+            logger.debug("%s -> %s = %s", exemplar_route_string, route_string, distance)
+            if distance <= 3:
+                return strategy
+    return None
 
 
-def update_strategy(strategies: List[Strategy], round: Round):
-    played_strategy = identify_strategy(strategies, round)
-    pass
+def edit_distance(str1, str2):
+    a, b = len(str1), len(str2)
+    string_matrix = [[0 for i in range(b + 1)] for i in range(a + 1)]
+    for i in range(a + 1):
+        for j in range(b + 1):
+            if i == 0:
+                # If first string is empty, insert all characters of second string into first.
+                string_matrix[i][j] = j
+            elif j == 0:
+                # If second string is empty, remove all characters of first string.
+                string_matrix[i][j] = i
+            elif str1[i-1] == str2[j-1]:
+                # If last characters of two strings are same, nothing much to do. Ignore the last
+                # two characters and get the count of remaining strings.
+                string_matrix[i][j] = string_matrix[i-1][j-1]
+            else:
+                string_matrix[i][j] = 1 + min(
+                    string_matrix[i][j-1],         # insert operation
+                    string_matrix[i-1][j],         # remove operation
+                    string_matrix[i-1][j-1]        # replace operation
+                )
+    return string_matrix[a][b]
+
+
+def update_strategy(played_strategy: Strategy, round: Round) -> bool:
+    side = round.side
+    strategy_successful = False
+
+    if side == Side.CT and round.ct_win:
+        strategy_successful = True
+    if side == Side.T and round.t_win:
+        strategy_successful = True
+
+    if strategy_successful and played_strategy is not None:
+        played_strategy.wins += 1
+    if not strategy_successful and played_strategy is not None:
+        played_strategy.losses += 1
+
+    return strategy_successful
 
 
 class Message:
@@ -381,10 +433,22 @@ async def log_game_progress():
             while not round.complete:
                 await asyncio.sleep(5)
 
-            update_strategy(strategies, round)
-
-            url = plot_strategies(strategies, selected_strategy)
-            await message.set_url(url)
+            route = observations_to_route(round.observations)
+            logger.debug("Route: %s")
+            played_strategy = identify_strategy(strategies, route)
+            if played_strategy is None:
+                logger.info("Unable to identify strategy for route: %s", route)
+            else:
+                won = update_strategy(strategies, round)
+                if won is None:
+                    logger.info("Unable to determine winner")
+                    logger.info("Unable to update strategy")
+                else:
+                    await message.append_description(
+                        RESULT_TEMPLATE.format(round.number, message=f"We {'won' if won else 'lost'}")
+                    )
+                    url = plot_strategies(strategies, selected_strategy)
+                    await message.set_url(url)
 
 
 bot.loop.create_task(monitor_game())

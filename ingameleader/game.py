@@ -1,9 +1,13 @@
+import logging
 from typing import Dict, Optional
 
 from ingameleader.model.round import Round
 from ingameleader.model.observation import Observation
 from ingameleader.model.context import Context
 from ingameleader.model.side import Side
+
+
+logger = logging.getLogger(__name__)
 
 
 class Game:
@@ -14,6 +18,7 @@ class Game:
         self.side: Optional[Side] = None
 
     def update(self, observation: Observation):
+        logger.debug("Updating game state with new observation")
         if observation.context != Context.ALIVE:
             return None
 
@@ -21,10 +26,10 @@ class Game:
             return None
 
         if observation.round_number < max(self.rounds.keys(), default=-1):
-            print("WARNING: Got an observation for an old round, ignoring!")
+            logger.warning("Got an observation for an old round, ignoring!")
             return None
         if observation.round_number > max(self.rounds.keys(), default=99999) + 1:
-            print("WARNING: Got an observation for a round much later in the game than expected, ignoring!")
+            logger.warning("Got an observation for a round much later in the game than expected, ignoring!")
             return None
 
         if observation.side is not None:
@@ -35,6 +40,7 @@ class Game:
             current_round.update(observation)
 
         else:
+            logger.debug("Creating new round")
             current_round = Round(
                 observation.round_number,
                 side=observation.side,
