@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Enum
+from contextlib import contextmanager
+
+from sqlalchemy import Column, Integer, String, ForeignKey, Enum, Float, create_engine
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, sessionmaker
 
 from ingameleader.model.side import Side
 
@@ -12,8 +14,10 @@ class Strategy(Base):
 
     id = Column(Integer, primary_key=True, autoincrement="auto")
     map_id = Column(Integer, ForeignKey("map.id"), nullable=False)
+    map = relationship("Map")
+    exemplar_routes = relationship("ExemplarRoute", backref="strategy")
 
-    name = Column(String, unique=True)
+    name = Column(String, unique=False)
 
     alpha = Column(Integer, nullable=False)
     beta = Column(Integer, nullable=False)
@@ -26,14 +30,37 @@ class Map(Base):
     __tablename__ = "map"
 
     id = Column(Integer, primary_key=True, autoincrement="auto")
-    strategies = relationship("Strategy", backref="player")
+    strategies = relationship("Strategy")
+    locations = relationship("Location", backref="map")
 
     name = Column(String, unique=True)
 
 
-from contextlib import contextmanager
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy import create_engine
+class ExemplarRoute(Base):
+    __tablename__ = "exemplar_route"
+
+    id = Column(Integer, primary_key=True, autoincrement="auto")
+    strategy_id = Column(Integer, ForeignKey("strategy.id"), nullable=False)
+    route_to_locations = relationship("RouteToLocation")
+
+
+class RouteToLocation(Base):
+    __tablename__ = "route_to_location"
+    id = Column(Integer, primary_key=True, autoincrement="auto")
+    route_id = Column(Integer, ForeignKey("exemplar_route.id"), nullable=False)
+    location_id = Column(Integer, ForeignKey("location.id"), nullable=False)
+    location = relationship("Location", uselist=False)
+
+
+class Location(Base):
+    __tablename__ = "location"
+
+    id = Column(Integer, primary_key=True, autoincrement="auto")
+    map_id = Column(Integer, ForeignKey("map.id"), nullable=False)
+
+    name = Column(String, unique=False, nullable=False)
+    x = Column(Integer, nullable=False)
+    y = Column(Integer, nullable=False)
 
 
 @contextmanager

@@ -40,8 +40,15 @@ PyYAML
 
 pipenv install
 
+3. Setup
+
+```
+(in-game-leader) \in-game-leader> alembic upgrade head
+(in-game-leader) \in-game-leader> python ingameleader\seed\seed.py
+```
+
 3. Run tests
 
 ```
-(in-game-leader) \in-game-leader>python -m unittest
+(in-game-leader) \in-game-leader> python -m unittest
 ```

@@ -14,7 +14,8 @@ LOCATION_LOOKUP = {
     "dutside": "outside",
     "dutsidelong": "outsidelong",
     "dutsidetunnel": "outsidetunnel",
-    "ofmid": "topofmid"
+    "ofmid": "topofmid",
+    "tstert": "tstart",
 }
 
 

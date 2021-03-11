@@ -8,8 +8,6 @@ Create Date: 2021-03-06 12:54:27.707151
 from alembic import op
 import sqlalchemy as sa
 
-from ingameleader.seed import MAPS, STRATEGIES
-
 
 # revision identifiers, used by Alembic.
 revision = '87a9b543818d'
@@ -39,16 +37,6 @@ def upgrade():
     sa.PrimaryKeyConstraint('id'),
     )
     # ### end Alembic commands ###
-
-    # Seed data
-    op.bulk_insert(
-        map_table,
-        MAPS
-    )
-    op.bulk_insert(
-        strategy_table,
-        STRATEGIES
-    )
 
 
 def downgrade():

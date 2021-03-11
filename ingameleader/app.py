@@ -286,8 +286,12 @@ def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
     )
 
 
+def identify_strategy(strategies: List[Strategy], round: Round) -> Strategy:
+    pass
+
+
 def update_strategy(strategies: List[Strategy], round: Round):
-    played_strategy = None
+    played_strategy = identify_strategy(strategies, round)
     pass
 
 
@@ -337,7 +341,7 @@ class Message:
 async def log_game_progress():
     await bot.wait_until_ready()
 
-    map_name = "Inferno"
+    map_name = "Dust 2"
     message = Message()
 
     async with GAME_LOCK:
