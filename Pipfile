@@ -12,8 +12,8 @@ matplotlib = "*"
 easyocr = {path = "./../../Builds/EasyOCR"}
 "discord.py" = "*"
 sklearn = "*"
-filestack-python = "*"
 alembic = "*"
+google-cloud-storage = "*"
 
 [requires]
 python_version = "3.8"

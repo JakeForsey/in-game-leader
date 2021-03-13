@@ -1,5 +1,13 @@
+from pathlib import Path
+import logging
+
+GCP_SERVICE_ACCOUNT_JSON = "in-game-leader-3947b85207b5.json"
+
+CGSO_OVERVIEWS_PATH = Path("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Counter-Strike Global Offensive\\csgo\\resource\\overviews")
+
 ROUND_TEXT_REGION = (1211, 60, 1292, 87)  # Used to determine whether the player is alive or dead
 ROUND_WINNER_ICON_REGION = (1220, 175, 1330, 285)
+PLAYING_ON_TEAM_TEXT = (1067, 91, 1492, 112)
 LOCATION_TEXT_REGION = (25, 38, 280, 77)
 CT_SCORE_REGION = (1238, 43, 1274, 72)
 T_SCORE_REGION = (1288, 43, 1324, 72)
@@ -11,6 +19,7 @@ MONEY_REGION = (40, 479, 180, 523)
 REGIONS = [
     ROUND_TEXT_REGION,
     ROUND_WINNER_ICON_REGION,
+    PLAYING_ON_TEAM_TEXT,
     LOCATION_TEXT_REGION,
     CT_SCORE_REGION,
     T_SCORE_REGION,
@@ -92,4 +101,41 @@ T_SCORE_PIXEL_SIGNATURES = {
         ((1288 + 13, 42 + 18), (234, 209, 138), False),
 
     )
+}
+
+LOGGING_LEVEL = logging.DEBUG
+
+LOGGING_CONFIG = {
+    'version': 1,
+    'disable_existing_loggers': True,
+    'formatters': {
+        'standard': {
+            'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+        },
+    },
+    'handlers': {
+        'default': {
+            'level': logging.getLevelName(LOGGING_LEVEL),
+            'formatter': 'standard',
+            'class': 'logging.StreamHandler',
+            'stream': 'ext://sys.stdout',  # Default is stderr
+        },
+    },
+    'loggers': {
+        '': {  # root logger
+            'handlers': ['default'],
+            'level': 'WARNING',
+            'propagate': False
+        },
+        'ingameleader': {
+            'handlers': ['default'],
+            'level': logging.getLevelName(LOGGING_LEVEL),
+            'propagate': False
+        },
+        '__main__': {  # if __name__ == '__main__'
+            'handlers': ['default'],
+            'level': logging.getLevelName(LOGGING_LEVEL),
+            'propagate': False
+        },
+    }
 }

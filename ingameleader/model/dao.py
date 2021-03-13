@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 
-from sqlalchemy import Column, Integer, String, ForeignKey, Enum, Float, create_engine
+from sqlalchemy import Column, Integer, String, ForeignKey, Enum, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship, sessionmaker
 
@@ -34,6 +34,7 @@ class Map(Base):
     locations = relationship("Location", backref="map")
 
     name = Column(String, unique=True)
+    ugly_name = Column(String, unique=True)
 
 
 class ExemplarRoute(Base):

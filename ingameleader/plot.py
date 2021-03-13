@@ -1,15 +1,16 @@
-import os
+from datetime import datetime
+import io
 from pathlib import Path
-import tempfile
 from typing import List, Optional
 
-from filestack import Client as FileStackClient
+from google.cloud import storage
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import beta
 from scipy import interpolate
 
+from ingameleader import config as cfg
 from ingameleader.model.dao import Strategy
 
 
@@ -27,21 +28,27 @@ UNSELECTED_PDF_LINE_KWARGS = {
 SELECTED_TEXT_KWARGS = {
     "alpha": 1,
     "fontname": "Arial",
-    "size": 24
+    "size": 26
 }
 UNSELECTED_TEXT_KWARGS = {
-    "alpha": 0.4,
+    "alpha": 0.7,
     "fontname": "Arial",
-    "size": 12
+    "size": 22
 }
-client = FileStackClient(os.getenv("FILESTACK_APIKEY"))
+client = storage.Client.from_service_account_json(
+    json_credentials_path=cfg.GCP_SERVICE_ACCOUNT_JSON
+)
+bucket = client.get_bucket("in-game-leader-message")
 
 
 def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Strategy] = None):
+    image_ax_height = 7
+    graph_ax_height = GAP_PER_STRATEGY * len(strategies)
     fig, axes = plt.subplots(
         2, 1,
-        figsize=(7, 7 + (2 * len(strategies))),
-        facecolor=(54 / 255, 57 / 255, 63 / 255)
+        figsize=(12, image_ax_height + graph_ax_height),
+        facecolor=(54 / 255, 57 / 255, 63 / 255),
+        gridspec_kw={'height_ratios': [graph_ax_height, image_ax_height]}
     )
 
     x = np.linspace(0, 1, 50)
@@ -63,17 +70,18 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
         )
 
         axes[0].plot(x, dist.pdf(x) + y, c=c, **line_kwargs)
-        axes[0].text(1.1, y, f'{strategy.name} ({dist.stats()[0] * 100:.0f}%)', c=c, **text_kwargs)
+        # TODO Split on spaces
+        max_length = 15
+        strategy_name = "\n".join([strategy.name[i: i + max_length] for i in range(0, len(strategy.name), max_length)])
+        axes[0].text(1.1, y, f'{strategy_name} ({dist.stats()[0] * 100:.0f}%)', c=c, **text_kwargs)
 
     axes[0].axvline(0.5, 0, 5, c="grey", linestyle="--", alpha=1, linewidth=2)
     axes[0].axis("off")
 
     if selected_strategy is not None:
         map = selected_strategy.map
-        # TODO Get path from map
-        overview_path = Path("C:\\Program Files (x86)\\Steam\\steamapps\\common\\Counter-Strike Global Offensive\\csgo\\resource\\overviews")
-        de_dust2_radar = overview_path / Path("de_dust2_radar.dds")
-        image = Image.open(de_dust2_radar)
+        map_path = cfg.CGSO_OVERVIEWS_PATH / Path(f"{map.ugly_name}_radar.dds")
+        image = Image.open(map_path)
 
         axes[1].imshow(np.array(image))
 
@@ -90,10 +98,12 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
 
         axes[1].axis("off")
 
-    tmp = tempfile.TemporaryFile()
-    plt.tight_layout()
-    plt.savefig(tmp.name)
-    plt.savefig("testing.png")
-    # TODO Replace with AWS / GCP / Azure
-    image_link = client.upload(filepath=tmp.name + ".png")
-    return image_link.url
+    blob = bucket.blob(f"{str(datetime.now().timestamp()).replace('.', '_')}.png")
+
+    with io.BytesIO() as f:
+        plt.tight_layout()
+        plt.savefig(f)
+        f.seek(0)
+        blob.upload_from_file(f, content_type="image/png")
+
+    return blob.public_url

@@ -3,6 +3,7 @@ from collections import deque
 from datetime import timedelta, datetime
 import os
 import logging
+import logging.config
 import string
 from typing import Optional, List
 import cv2
@@ -33,8 +34,7 @@ from ingameleader.model.context import Context
 from ingameleader.model.round import Round
 from ingameleader.model.dao import Map, Strategy, create_session
 
-LOGGING_LEVEL = logging.DEBUG
-logging.basicConfig(level=LOGGING_LEVEL)
+logging.config.dictConfig(cfg.LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
 client = discord.Client()
 bot = Bot(client)
@@ -68,10 +68,21 @@ class FrameParser:
         )
 
     def get_current_context(self, frame, text_results) -> Context:
-        # If there is a winner we are between rounds
         for winner, pixel_signature in cfg.ROUND_WINNER_PIXEL_SIGNATURES.items():
             if match_signature(frame, pixel_signature):
-                return Context.BETWEEN_ROUNDS
+                return Context.ROUND_WINNER_SCREEN
+
+        # If we have the playing on team text we are in the buy phase
+        playing_on_team_text = best_result(
+            text_results,
+            relative_to(cfg.PLAYING_ON_TEAM_TEXT, cfg.META_REGION),
+            0.2
+        )
+        if playing_on_team_text is not None:
+            # TERRORIST is found for both Side.CT and Side.T
+            for terrorist_text in ["terrorist", "terrdrist"]:
+                if terrorist_text in playing_on_team_text.lower():
+                    return Context.BUY_PHASE
 
         money_text = best_result(
             text_results,
@@ -102,7 +113,7 @@ class FrameParser:
                 return Side.from_initial(winner)
 
     def get_location(self, frame, text_results, current_context) -> Optional[str]:
-        if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN]:
+        if current_context in [Context.DEAD, Context.ROUND_WINNER_SCREEN, Context.UNKNOWN]:
             return None
 
         score_frame = extract(cfg.LOCATION_TEXT_REGION, frame, cfg.META_REGION)
@@ -145,7 +156,7 @@ class FrameParser:
         return self._get_score(frame, text_results, current_context, cfg.T_SCORE_REGION, cfg.T_SCORE_PIXEL_SIGNATURES)
 
     def get_round_time(self, frame, text_results, current_context) -> Optional[timedelta]:
-        if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN, Context.WARM_UP]:
+        if current_context in [Context.DEAD, Context.ROUND_WINNER_SCREEN, Context.UNKNOWN, Context.WARM_UP]:
             return None
 
         # Try and get mins and seconds together
@@ -183,18 +194,43 @@ class FrameParser:
         return time
 
     def get_side(self, frame, text_results, current_context) -> Optional[Side]:
-        if current_context in [Context.DEAD, Context.BETWEEN_ROUNDS, Context.UNKNOWN, Context.WARM_UP]:
+        if current_context in [Context.DEAD, Context.ROUND_WINNER_SCREEN, Context.UNKNOWN, Context.WARM_UP]:
             return None
 
-        round_time = self.get_round_time(frame, text_results, current_context)
+        # Try and get a side by parsing the "PLAYING ON TEAM <TEAM>" text
+        if current_context == Context.BUY_PHASE:
+            playing_on_team_text = best_result(
+                text_results,
+                relative_to(cfg.PLAYING_ON_TEAM_TEXT, cfg.META_REGION),
+                0.2
+            )
+            if playing_on_team_text is not None:
+                side = Side.from_playing_on_team(playing_on_team_text)
+                if side is not None:
+                    return side
+
+        # Get the players location
         location = self.get_location(frame, text_results, current_context)
-        if round_time is None or location is None:
+        if location is None:
             return None
 
-        if round_time < timedelta(seconds=110):
+        # If we are in the buy phase and we have found a location
+        # use the location to infer the side
+        if current_context == Context.BUY_PHASE:
+            side = Side.from_location(location)
+            if side is not None:
+                return side
+
+        # If we are very early in the round, use the location to
+        # infer the side
+        round_time = self.get_round_time(frame, text_results, current_context)
+        if round_time is None:
             return None
 
-        return Side.from_location(location)
+        if round_time > timedelta(seconds=110):
+            return Side.from_location(location)
+
+        return None
 
     def get_money(self, frame, text_results, current_context) -> Optional[float]:
         if current_context == current_context.UNKNOWN:
@@ -236,7 +272,7 @@ async def edit_or_create_messages(title, footer, image_url, message_handles=None
         message_handles = []
         for guild in bot.guilds:
             if guild.name == 'Foreskins + the help':
-                logger.info(f"Skipping %s", guild.name)
+                logger.warning(f"Skipping %s", guild.name)
                 continue
             for channel in guild.text_channels:
                 message_handle = await channel.send(embed=embed)
@@ -254,7 +290,7 @@ async def monitor_game():
     parser = FrameParser()
     while True:
         frame = screenshotter.screenshot(region=cfg.META_REGION)
-        if LOGGING_LEVEL <= logging.DEBUG:
+        if cfg.LOGGING_LEVEL <= logging.DEBUG:
             Image.fromarray(frame).save(f"screenshots/log/{datetime.now().timestamp()}.png")
         observation = parser.frame_to_observation(frame)
         logger.debug(observation)
@@ -395,6 +431,7 @@ async def log_game_progress():
     await bot.wait_until_ready()
 
     map_name = "Dust 2"
+    logger.debug("Creating a new message")
     message = Message()
 
     async with GAME_LOCK:
@@ -402,6 +439,7 @@ async def log_game_progress():
 
     with create_session() as session:
         map = session.query(Map).filter_by(name=map_name).first()
+        logger.info("Playing on %s", map.name)
 
         while True:
             async with GAME_LOCK:
@@ -416,6 +454,10 @@ async def log_game_progress():
                 .all()
 
             if not rounds or not strategies:
+                if not rounds:
+                    logger.info("No rounds found yet")
+                if not strategies:
+                    logger.info("No strategies found yet")
                 # Game has not started (or we have not figured out the side we are
                 # on yet)
                 await asyncio.sleep(5)
@@ -461,6 +503,5 @@ if __name__ == "__main__":
     #
     # while True:
     #     obs = make_observation(screenshotter, reader)
-    #     print(obs)
 
     bot.run(os.getenv("DISCORD_API_TOKEN"))

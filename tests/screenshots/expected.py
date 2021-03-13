@@ -12,6 +12,15 @@ EXPECTED_OBSERVATIONS = {
         money=2850,
         context=Context.DEAD
     ),
+    "tests/screenshots/1613854237.6859975.png": Observation(
+        location=format_location("CT Start"),
+        ct_score=4,
+        t_score=3,
+        time=timedelta(seconds=14),
+        side=Side.CT,
+        money=3300,
+        context=Context.BUY_PHASE
+    ),
     "tests/screenshots/1613854507.9261875.png": Observation(
         location=format_location("B Doors"),
         ct_score=5,
@@ -22,7 +31,7 @@ EXPECTED_OBSERVATIONS = {
         context=Context.ALIVE
     ),
     "tests/screenshots/1613854648.0500681.png": Observation(
-        context=Context.BETWEEN_ROUNDS,
+        context=Context.ROUND_WINNER_SCREEN,
         location=None,
         ct_score=7,
         t_score=4,
@@ -94,7 +103,7 @@ EXPECTED_OBSERVATIONS = {
         time=None,
         side=None,
         money=5150,
-        context=Context.BETWEEN_ROUNDS,
+        context=Context.ROUND_WINNER_SCREEN,
         winner=Side.CT,
     ),
     "tests/screenshots/1613858441.821546.png": Observation(
@@ -114,7 +123,7 @@ EXPECTED_OBSERVATIONS = {
         time=None,
         side=None,
         money=6100,
-        context=Context.BETWEEN_ROUNDS,
+        context=Context.ROUND_WINNER_SCREEN,
         winner=Side.T
     ),
 }

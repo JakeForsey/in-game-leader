@@ -1,6 +1,10 @@
 import enum
+import logging
 
 from ingameleader.utils import format_location
+
+
+logger = logging.getLogger(__name__)
 
 
 class Side(enum.Enum):
@@ -14,7 +18,7 @@ class Side(enum.Enum):
         elif location == format_location("T Start"):
             return Side.T
         else:
-            print(f"WARNING: Unable to determine side from {location}")
+            logger.warning("Unable to determine side from %s", location)
             return None
 
     @staticmethod
@@ -24,5 +28,19 @@ class Side(enum.Enum):
         elif initial == "CT":
             return Side.CT
         else:
-            print(f"WARNING: Unable to determine side from {initial}")
+            logger.warning("Unable to determine side from %s", initial)
             return None
+
+    @staticmethod
+    def from_playing_on_team(playing_on_team):
+        playing_on_team = playing_on_team.lower()
+        for ct_text in ["counter", "cdunter"]:
+            if ct_text in playing_on_team:
+                return Side.CT
+
+        for t_text in ["terrorist", "terrdrist"]:
+            if t_text in playing_on_team:
+                return Side.T
+
+        logger.warning("Unable to determine side from %s", playing_on_team)
+        return None

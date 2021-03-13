@@ -19,7 +19,7 @@ class Game:
 
     def update(self, observation: Observation):
         logger.debug("Updating game state with new observation")
-        if observation.context != Context.ALIVE:
+        if observation.context not in [Context.ALIVE, Context.BUY_PHASE, Context.ROUND_WINNER_SCREEN]:
             return None
 
         if observation.round_number is None:

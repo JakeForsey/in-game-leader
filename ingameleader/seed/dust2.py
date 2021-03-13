@@ -6,6 +6,7 @@ DUST2_MAP_ID = 1
 MAP = {
     "id": DUST2_MAP_ID,
     "name": "Dust 2",
+    "ugly_name": "de_dust2"
 }
 
 T_START = 1
