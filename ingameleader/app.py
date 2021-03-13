@@ -361,30 +361,6 @@ def identify_strategy(
     return None
 
 
-def edit_distance(str1, str2):
-    a, b = len(str1), len(str2)
-    string_matrix = [[0 for i in range(b + 1)] for i in range(a + 1)]
-    for i in range(a + 1):
-        for j in range(b + 1):
-            if i == 0:
-                # If first string is empty, insert all characters of second string into first.
-                string_matrix[i][j] = j
-            elif j == 0:
-                # If second string is empty, remove all characters of first string.
-                string_matrix[i][j] = i
-            elif str1[i-1] == str2[j-1]:
-                # If last characters of two strings are same, nothing much to do. Ignore the last
-                # two characters and get the count of remaining strings.
-                string_matrix[i][j] = string_matrix[i-1][j-1]
-            else:
-                string_matrix[i][j] = 1 + min(
-                    string_matrix[i][j-1],         # insert operation
-                    string_matrix[i-1][j],         # remove operation
-                    string_matrix[i-1][j-1]        # replace operation
-                )
-    return string_matrix[a][b]
-
-
 def update_strategy(played_strategy: Optional[Strategy], round: Round, session):
     if played_strategy is None:
         logger.info("Unable to update strategy because a strategy was not identified")
