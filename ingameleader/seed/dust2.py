@@ -155,8 +155,8 @@ LOCATIONS = [
         "id": SHORT_STAIRS,
         "map_id": DUST2_MAP_ID,
         "name": "shortstairs",
-        "x": 630,
-        "y": 630,
+        "x": 650,
+        "y": 350,
     },
     {
         "id": CT_START,
@@ -236,6 +236,33 @@ EXEMPLAR_ROUTES = [
         ]
     },
     {
+        "strategy_id": T_RUSH_A_LONG,
+        "_locations": [
+            T_START,
+            TOP_OF_MID,  # If you cut the corner by jumping the wall
+            OUTSIDE_LONG,
+            LONG_DOORS,
+            LONG_A,
+            A_RAMP,
+            BOMBSITE_A,
+        ]
+    },
+
+    # T_SPLIT_A via catwalk
+    {
+        "strategy_id": T_SPLIT_A,
+        "_locations": [
+            T_START,
+            TOP_OF_MID,    # Jump down from spawn
+            OUTSIDE_LONG,  # Go back towards long doors
+            TOP_OF_MID,    # Back onto top of min
+            CATWALK,
+            SHORT_STAIRS,
+            EXTENDED_A,
+            BOMBSITE_A
+        ]
+    },
+    {
         "strategy_id": T_SPLIT_A,
         "_locations": [
             T_START,
@@ -247,6 +274,7 @@ EXEMPLAR_ROUTES = [
             BOMBSITE_A
         ]
     },
+    # T_SPLIT_A via long
     {
         "strategy_id": T_SPLIT_A,
         "_locations": [
@@ -311,10 +339,6 @@ EXEMPLAR_ROUTES = [
 ]
 
 EXEMPLAR_ROUTES = [
-    route for route in EXEMPLAR_ROUTES
-]
-# TODO Make this mapping somehow
-ROUTES_TO_LOCATIONS = [
     route for route in EXEMPLAR_ROUTES
 ]
 

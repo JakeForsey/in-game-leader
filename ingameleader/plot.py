@@ -87,11 +87,19 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
 
         for route in selected_strategy.exemplar_routes:
             locations = [rtl.location for rtl in route.route_to_locations]
+            if len(locations) > 5:
+                locations = (
+                    locations[0],
+                    locations[int(0.33 * len(locations))],
+                    locations[int(0.7 * len(locations))],
+                    locations[-1]
+                )
             xs = np.array([location.x for location in locations])
             ys = np.array([location.y for location in locations])
 
+            print(len(locations))
             if len(locations) >= 3:
-                f, u = interpolate.splprep([xs, ys], s=2)
+                f, u = interpolate.splprep([xs, ys], s=2, k=2)
                 xs, ys = interpolate.splev(np.linspace(0, 1, 100), f)
 
             axes[1].plot(xs, ys, "--", linewidth=4, c=colours[strategies.index(selected_strategy)])
