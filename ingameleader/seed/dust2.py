@@ -156,7 +156,7 @@ LOCATIONS = [
         "map_id": DUST2_MAP_ID,
         "name": "shortstairs",
         "x": 630,
-        "y": 355,
+        "y": 630,
     },
     {
         "id": CT_START,
@@ -176,7 +176,7 @@ LOCATIONS = [
         "id": PIT,
         "map_id": DUST2_MAP_ID,
         "name": "pit",
-        "x": 885,
+        "x": 880,
         "y": 630,
     },
 ]
@@ -224,6 +224,18 @@ EXEMPLAR_ROUTES = [
         ]
     },
     {
+        "strategy_id": T_RUSH_A_LONG,
+        "_locations": [
+            T_START,
+            OUTSIDE_LONG,
+            LONG_DOORS,
+            PIT,  # Detour to check pit
+            LONG_A,
+            A_RAMP,
+            BOMBSITE_A,
+        ]
+    },
+    {
         "strategy_id": T_SPLIT_A,
         "_locations": [
             T_START,
@@ -241,16 +253,40 @@ EXEMPLAR_ROUTES = [
             T_START,
             OUTSIDE_LONG,
             LONG_DOORS,
+            PIT,  # Detour to check pit
+            LONG_A,
+            A_RAMP,
+            BOMBSITE_A,
+        ]
+    },
+    {
+        "strategy_id": T_SPLIT_A,
+        "_locations": [
+            T_START,
+            OUTSIDE_LONG,
+            LONG_DOORS,
             LONG_A,
             A_RAMP,
             BOMBSITE_A
         ]
     },
     {
+        "strategy_id": T_SPLIT_A,
+        "_locations": [
+            T_START,
+            TOP_OF_MID,  # If you cut the corner by jumping the wall
+            OUTSIDE_LONG,
+            LONG_DOORS,
+            LONG_A,
+            A_RAMP,
+            BOMBSITE_A,
+        ]
+    },
+    {
         "strategy_id": CT_2A_2B_1MID,
         "_locations": [
             CT_START,
-            MIDDLE,
+            MID_DOORS,
             B_DOORS,
             BOMBSITE_B,
         ]

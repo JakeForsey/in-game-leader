@@ -5,15 +5,18 @@ import os
 import logging
 import logging.config
 import string
-from typing import Optional, List
+from typing import Optional, List, Tuple
+
 import cv2
 from PIL import Image
-
 import discord
 from discord.ext.commands import Bot
+import dtw
 import d3dshot
 import easyocr
+import numpy as np
 from scipy.stats import beta
+from scipy.spatial.distance import cdist
 
 from ingameleader import config as cfg
 from ingameleader.game import Game
@@ -32,7 +35,7 @@ from ingameleader.model.observation import Observation
 from ingameleader.model.side import Side
 from ingameleader.model.context import Context
 from ingameleader.model.round import Round
-from ingameleader.model.dao import Map, Strategy, create_session
+from ingameleader.model.dao import Map, Strategy, Location, create_session
 
 logging.config.dictConfig(cfg.LOGGING_CONFIG)
 logger = logging.getLogger(__name__)
@@ -296,29 +299,35 @@ async def monitor_game():
         logger.debug(observation)
         async with GAME_LOCK:
             game.update(observation)
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
 
 
-def observations_to_route(observations: List[Observation]) -> List[str]:
-    route = []
+def location_to_point(location: str, session) -> Optional[Tuple[int, int]]:
+    location = session.query(Location).filter(Location.name == location).first()
+    if location is None:
+        return None
+    return location.x, location.y
+
+
+def observations_to_points(observations: List[Observation], session) -> List[Tuple[int, int]]:
+    points = []
     for observation in observations:
-        if observation.location is None:
-            continue
-        if not route:
-            route.append(observation.location)
-        else:
-            if route[-1] != observation.location:
-                route.append(observation.location)
-    return route
+        point = location_to_point(observation.location, session)
+        if point is not None:
+            if not points or points[-1] != point:
+                points.append(point)
+    return points
 
 
 TITLE_TEMPLATE = """Counter-Terrorist [ {} ]      [ {} ] Terrorist        """
 EXECUTE_TEMPLATE = """[ ROUND {} ] [ EXECUTE ] {}"""
 STRATEGY_TEMPLATE = """[ ROUND {} ] [ STRATEGY ] {}"""
+MUTINY_TEMPLATE = """[ ROUND {} ] [ MUTINY ] {}"""
 RESULT_TEMPLATE = """[ ROUND {} ] [ RESULT ] {}"""
 
 
 def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
+    logger.debug("Selecting strategy")
     return max(
         strategies,
         key=lambda strat: beta.rvs(
@@ -329,16 +338,25 @@ def select_strategy(strategies: List[Strategy]) -> Optional[Strategy]:
     )
 
 
-def identify_strategy(strategies: List[Strategy], route: List[str]) -> Optional[Strategy]:
-    for strategy in strategies:
+def identify_strategy(
+        strategies: List[Strategy],
+        points: List[Tuple[int, int]],
+        selected_strategy: Optional[Strategy] = None
+) -> Optional[Strategy]:
+    # Insert the selected strategy first, we want to stop fast if the strategy is selected
+    # and if there are multiple strategies with compatible routes we also want to bias
+    # towards the one we selected.
+    strategies_with_selected_strategy_first = [selected_strategy] + strategies
+    logger.debug("Expected strategy: %s", selected_strategy)
+    for strategy in strategies_with_selected_strategy_first:
         for exemplar_route in strategy.exemplar_routes:
-            exemplar_locations = [rtl.location.name for rtl in exemplar_route.route_to_locations]
-            index = min(len(exemplar_locations), len(route))
-            route_string = "".join(route[:index])
-            exemplar_route_string = "".join(exemplar_locations[:index])
-            distance = edit_distance(route_string, exemplar_route_string)
-            logger.debug("%s -> %s = %s", exemplar_route_string, route_string, distance)
-            if distance <= 3:
+            exemplar_points = [(rtl.location.x, rtl.location.y) for rtl in exemplar_route.route_to_locations]
+            index = min(len(exemplar_points), len(points))
+            sub_points = np.array([(idx, x, y) for idx, (x, y) in enumerate(points[:index])])
+            exemplar_points = np.array([(idx, x, y) for idx, (x, y) in enumerate(exemplar_points[:index])])
+            alignment = dtw.dtw(cdist(sub_points, exemplar_points))
+            logger.debug("%s DTW: %s", strategy.name, alignment.normalizedDistance)
+            if alignment.normalizedDistance < 60:
                 return strategy
     return None
 
@@ -367,21 +385,19 @@ def edit_distance(str1, str2):
     return string_matrix[a][b]
 
 
-def update_strategy(played_strategy: Strategy, round: Round) -> bool:
-    side = round.side
-    strategy_successful = False
+def update_strategy(played_strategy: Optional[Strategy], round: Round, session):
+    if played_strategy is None:
+        logger.info("Unable to update strategy because a strategy was not identified")
+        return None
+    if round.won is None:
+        logger.info("Unable to update strategy because who won was not identified")
+        return None
 
-    if side == Side.CT and round.ct_win:
-        strategy_successful = True
-    if side == Side.T and round.t_win:
-        strategy_successful = True
-
-    if strategy_successful and played_strategy is not None:
+    if round.won:
         played_strategy.wins += 1
-    if not strategy_successful and played_strategy is not None:
+    else:
         played_strategy.losses += 1
-
-    return strategy_successful
+    session.commit()
 
 
 class Message:
@@ -393,30 +409,26 @@ class Message:
         self.url = None
         self.message_handles = None
 
-    async def set_game(self, game: Game):
+    def set_game(self, game: Game):
         self.game = game
-        await self.update()
 
-    async def append_description(self, string: str):
+    def append_description(self, string: str):
         self.text_messages.append(string)
-        await self.update()
 
-    async def set_round(self, round: Round):
+    def set_round(self, round: Round):
         self.round = round
-        await self.update()
 
-    async def set_selected_strategy(self, strategy: Strategy):
+    def set_selected_strategy(self, strategy: Strategy):
         self.selected_strategy = strategy
-        await self.append_description(
+        self.append_description(
             EXECUTE_TEMPLATE.format(
                 self.round.number,
                 self.selected_strategy.name
             )
         )
 
-    async def set_url(self, url: str):
+    def set_url(self, url: str):
         self.url = url
-        await self.update()
 
     async def update(self):
         self.message_handles = await edit_or_create_messages(
@@ -427,6 +439,68 @@ class Message:
         )
 
 
+async def game_loop(message: Message, map: Map, session):
+    async with GAME_LOCK:
+        side = game.side
+        rounds = game.rounds
+        if game.complete:
+            return None
+
+    strategies = session \
+        .query(Strategy) \
+        .filter_by(map_id=map.id, side=side) \
+        .all()
+
+    if not rounds or not strategies:
+        if not rounds:
+            logger.info("No rounds found yet")
+        if not strategies:
+            logger.info("No strategies found yet")
+        # Game has not started (or we have not figured out the side we are
+        # on yet)
+        await asyncio.sleep(1)
+        return None
+
+    round = rounds[max(rounds)]
+    message.set_round(round)
+
+    selected_strategy = select_strategy(strategies)
+    message.set_selected_strategy(selected_strategy)
+
+    url = plot_strategies(strategies, selected_strategy)
+    message.set_url(url)
+
+    await message.update()
+
+    while not round.complete:
+        await asyncio.sleep(1)
+
+    points = observations_to_points(round.observations, session)
+    logger.debug("Route points: %s", points)
+    played_strategy = identify_strategy(strategies, points, selected_strategy)
+    if played_strategy is None:
+        logger.info("Unable to identify strategy for route: %s", points)
+    else:
+        if played_strategy != selected_strategy:
+            message.append_description(
+                MUTINY_TEMPLATE.format(
+                    round.number,
+                    f"You were meant to play {selected_strategy.name} but played {played_strategy.name}"
+                )
+            )
+        logger.debug("Updating strategy: %s", played_strategy)
+
+        update_strategy(played_strategy, round, session)
+        if round.won is not None:
+            message.append_description(
+                RESULT_TEMPLATE.format(round.number, f"We {'won' if round.won else 'lost'}")
+            )
+            url = plot_strategies(strategies, selected_strategy)
+            message.set_url(url)
+
+    await message.update()
+
+
 async def log_game_progress():
     await bot.wait_until_ready()
 
@@ -435,62 +509,19 @@ async def log_game_progress():
     message = Message()
 
     async with GAME_LOCK:
-        await message.set_game(game)
+        message.set_game(game)
+        await message.update()
 
     with create_session() as session:
         map = session.query(Map).filter_by(name=map_name).first()
         logger.info("Playing on %s", map.name)
 
         while True:
-            async with GAME_LOCK:
-                side = game.side
-                rounds = game.rounds
-                if game.complete:
-                    break
-
-            strategies = session \
-                .query(Strategy) \
-                .filter_by(map_id=map.id, side=side) \
-                .all()
-
-            if not rounds or not strategies:
-                if not rounds:
-                    logger.info("No rounds found yet")
-                if not strategies:
-                    logger.info("No strategies found yet")
-                # Game has not started (or we have not figured out the side we are
-                # on yet)
-                await asyncio.sleep(5)
-                continue
-
-            round = rounds[max(rounds)]
-            await message.set_round(round)
-
-            selected_strategy = select_strategy(strategies)
-            await message.set_selected_strategy(selected_strategy)
-
-            url = plot_strategies(strategies, selected_strategy)
-            await message.set_url(url)
-
-            while not round.complete:
-                await asyncio.sleep(5)
-
-            route = observations_to_route(round.observations)
-            logger.debug("Route: %s")
-            played_strategy = identify_strategy(strategies, route)
-            if played_strategy is None:
-                logger.info("Unable to identify strategy for route: %s", route)
-            else:
-                won = update_strategy(strategies, round)
-                if won is None:
-                    logger.info("Unable to determine winner")
-                    logger.info("Unable to update strategy")
-                else:
-                    await message.append_description(
-                        RESULT_TEMPLATE.format(round.number, message=f"We {'won' if won else 'lost'}")
-                    )
-                    url = plot_strategies(strategies, selected_strategy)
-                    await message.set_url(url)
+            try:
+                await game_loop(message, map, session)
+            except Exception as e:
+                logger.exception("Unhandled exception in game loop")
+                logger.warning(e)
 
 
 bot.loop.create_task(monitor_game())

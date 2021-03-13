@@ -90,8 +90,9 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
             xs = np.array([location.x for location in locations])
             ys = np.array([location.y for location in locations])
 
-            f, u = interpolate.splprep([xs, ys], k=2)
-            xs, ys = interpolate.splev(np.linspace(0, 1, 100), f)
+            if len(locations) >= 3:
+                f, u = interpolate.splprep([xs, ys], s=2)
+                xs, ys = interpolate.splev(np.linspace(0, 1, 100), f)
 
             axes[1].plot(xs, ys, "--", linewidth=4, c=colours[strategies.index(selected_strategy)])
             axes[1].scatter(xs[-1], ys[-1], s=150, c=colours[strategies.index(selected_strategy)])

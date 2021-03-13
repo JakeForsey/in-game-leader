@@ -25,6 +25,9 @@ class Strategy(Base):
     losses = Column(Integer, nullable=False)
     side = Column(Enum(Side), nullable=False)
 
+    def __str__(self):
+        return f"Strategy(name={self.name}, wins={self.losses}, wins={self.wins}, side={self.side})"
+
 
 class Map(Base):
     __tablename__ = "map"
@@ -35,6 +38,9 @@ class Map(Base):
 
     name = Column(String, unique=True)
     ugly_name = Column(String, unique=True)
+
+    def __str__(self):
+        return f"Map(name={self.name})"
 
 
 class ExemplarRoute(Base):
@@ -62,6 +68,9 @@ class Location(Base):
     name = Column(String, unique=False, nullable=False)
     x = Column(Integer, nullable=False)
     y = Column(Integer, nullable=False)
+
+    def __str__(self):
+        return f"Location(name={self.name})"
 
 
 @contextmanager

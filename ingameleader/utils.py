@@ -13,9 +13,18 @@ LOCATION_LOOKUP = {
     "gtstart": "ctstart",
     "dutside": "outside",
     "dutsidelong": "outsidelong",
+    "qutsidelong": "outsidelong",
     "dutsidetunnel": "outsidetunnel",
+    "tapafmid": "topofmid",
     "ofmid": "topofmid",
+    "top": "topofmid",
     "tstert": "tstart",
+    "langdoors": "longdoors",
+    "longdaors": "longdoors",
+    "longdoprs": "longdoors",
+    "gatwalk": "catwalk",
+    "middbors": "middoors",
+    "bambsitea": "bombsiteb",
 }
 
 

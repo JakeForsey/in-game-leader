@@ -40,7 +40,7 @@ class Game:
             current_round.update(observation)
 
         else:
-            logger.debug("Creating new round")
+            logger.info("Creating new round")
             current_round = Round(
                 observation.round_number,
                 side=observation.side,

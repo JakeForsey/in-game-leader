@@ -15,8 +15,18 @@ class Round:
 
     def update(self, observation: Observation):
         self.observations.append(observation)
-        self.side = observation.side
+        if observation.side is not None:
+            self.side = observation.side
 
     @property
     def complete(self):
         return self.ct_win or self.t_win
+
+    @property
+    def won(self) -> Optional[bool]:
+        won = None
+        if self.side == Side.CT:
+            won = self.ct_win
+        if self.side == Side.T:
+            won = self.t_win
+        return won
