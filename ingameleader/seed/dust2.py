@@ -338,10 +338,6 @@ EXEMPLAR_ROUTES = [
     },
 ]
 
-EXEMPLAR_ROUTES = [
-    route for route in EXEMPLAR_ROUTES
-]
-
 STRATEGIES = [
     # T Side strategies
     {

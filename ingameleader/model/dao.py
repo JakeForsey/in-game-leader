@@ -42,6 +42,9 @@ class Map(Base):
     def __str__(self):
         return f"Map(name={self.name})"
 
+    def __repr__(self):
+        return str(self)
+
 
 class ExemplarRoute(Base):
     __tablename__ = "exemplar_route"
@@ -70,7 +73,10 @@ class Location(Base):
     y = Column(Integer, nullable=False)
 
     def __str__(self):
-        return f"Location(name={self.name})"
+        return f"Location(name={self.name}, x={self.x}, y={self.y})"
+
+    def __repr__(self):
+        return str(self)
 
 
 @contextmanager

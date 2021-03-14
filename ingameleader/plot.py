@@ -1,5 +1,6 @@
 from datetime import datetime
 import io
+import logging
 from pathlib import Path
 from typing import List, Optional
 
@@ -12,6 +13,9 @@ from scipy import interpolate
 
 from ingameleader import config as cfg
 from ingameleader.model.dao import Strategy
+
+
+logger = logging.getLogger(__name__)
 
 
 GAP_PER_STRATEGY = 1.5
@@ -41,7 +45,7 @@ client = storage.Client.from_service_account_json(
 bucket = client.get_bucket("in-game-leader-message")
 
 
-def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Strategy] = None):
+def plot_strategies(strategies: List[Strategy], selected_strategy: Strategy):
     image_ax_height = 7
     graph_ax_height = GAP_PER_STRATEGY * len(strategies)
     fig, axes = plt.subplots(
@@ -56,10 +60,8 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
     for i in range(len(strategies) - 1, -1, -1):
         y = i * GAP_PER_STRATEGY
         strategy = strategies[i]
-        if selected_strategy is not None:
-            selected = strategy == selected_strategy
-        else:
-            selected = True
+        selected = strategy == selected_strategy
+
         c = colours[i]
         line_kwargs = SELECTED_PDF_LINE_KWARGS if selected else UNSELECTED_PDF_LINE_KWARGS
         text_kwargs = SELECTED_TEXT_KWARGS if selected else UNSELECTED_TEXT_KWARGS
@@ -78,34 +80,44 @@ def plot_strategies(strategies: List[Strategy], selected_strategy: Optional[Stra
     axes[0].axvline(0.5, 0, 5, c="grey", linestyle="--", alpha=1, linewidth=2)
     axes[0].axis("off")
 
-    if selected_strategy is not None:
-        map = selected_strategy.map
-        map_path = cfg.CGSO_OVERVIEWS_PATH / Path(f"{map.ugly_name}_radar.dds")
-        image = Image.open(map_path)
+    map = selected_strategy.map
+    map_path = cfg.CGSO_OVERVIEWS_PATH / Path(f"{map.ugly_name}_radar.dds")
+    image = Image.open(map_path)
 
-        axes[1].imshow(np.array(image))
+    axes[1].imshow(np.array(image))
 
-        for route in selected_strategy.exemplar_routes:
-            locations = [rtl.location for rtl in route.route_to_locations]
-            if len(locations) > 5:
-                locations = (
-                    locations[0],
-                    locations[int(0.33 * len(locations))],
-                    locations[int(0.7 * len(locations))],
-                    locations[-1]
-                )
-            xs = np.array([location.x for location in locations])
-            ys = np.array([location.y for location in locations])
+    for route in selected_strategy.exemplar_routes:
+        locations = [rtl.location for rtl in route.route_to_locations]
 
-            print(len(locations))
-            if len(locations) >= 3:
-                f, u = interpolate.splprep([xs, ys], s=2, k=2)
-                xs, ys = interpolate.splev(np.linspace(0, 1, 100), f)
+        if 6 < len(locations) < 9:
+            logger.debug("Filtering %s locations to %s", len(locations), 4)
+            locations = (
+                locations[0],
+                locations[int(0.33 * len(locations))],
+                locations[int(0.7 * len(locations))],
+                locations[-1]
+            )
+        elif len(locations) >= 9:
+            logger.debug("Filtering %s locations to %s", len(locations), 5)
+            locations = (
+                locations[0],
+                locations[int(0.2 * len(locations))],
+                locations[int(0.5 * len(locations))],
+                locations[int(0.8 * len(locations))],
+                locations[-1]
+            )
 
-            axes[1].plot(xs, ys, "--", linewidth=4, c=colours[strategies.index(selected_strategy)])
-            axes[1].scatter(xs[-1], ys[-1], s=150, c=colours[strategies.index(selected_strategy)])
+        xs = np.array([location.x for location in locations])
+        ys = np.array([location.y for location in locations])
 
-        axes[1].axis("off")
+        if len(locations) >= 3:
+            f, u = interpolate.splprep([xs, ys], s=2, k=2)
+            xs, ys = interpolate.splev(np.linspace(0, 1, 100), f)
+
+        axes[1].plot(xs, ys, "--", linewidth=4, c=colours[strategies.index(selected_strategy)])
+        axes[1].scatter(xs[-1], ys[-1], s=150, c=colours[strategies.index(selected_strategy)])
+
+    axes[1].axis("off")
 
     blob = bucket.blob(f"{str(datetime.now().timestamp()).replace('.', '_')}.png")
 
